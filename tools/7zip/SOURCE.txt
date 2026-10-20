@@ -1,0 +1,12 @@
+7zr.exe: 7-Zip 26.04 portable console extractor, copyright Igor Pavlov.
+Downloaded from the official 7-Zip project's release linked at:
+https://www.7-zip.org/download.html
+Binary: https://github.com/ip7z/7zip/releases/download/26.04/7zr.exe
+SHA-256: 256feca8e274e5da655e2a284fabafd9f554365eb164862089dacd4e8276d282
+The 7zr.exe console banner identifies this reduced executable as Public domain.
+License.txt also includes the upstream general 7-Zip licensing information.
+Corresponding source: https://github.com/ip7z/7zip/tree/26.04
+Source archive: https://github.com/ip7z/7zip/releases/download/26.04/7z2604-src.tar.xz
+
+This executable only extracts archives. GPU Manager never executes an NVIDIA
+installer when using Cache NVIDIA installer (.exe).
