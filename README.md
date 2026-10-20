@@ -244,3 +244,8 @@ read-only inventory; **Export diagnosis** saves the currently displayed devices.
 Project code is available under the [MIT license](LICENSE). NVIDIA trademarks,
 logo assets, and the bundled extractor have separate terms described in
 [NOTICE.md](NOTICE.md).
+
+
+## USE AT YOUR OWN RISK!!
+
+I will not be held responsible for anything that happens with this tool, it is still in testing and it could leave you with no drivers/display if used incorrectly!
