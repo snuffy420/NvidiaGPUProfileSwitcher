@@ -36,6 +36,10 @@ Profiles do not create separate, simultaneously active NVIDIA driver stacks.
 
 ## Screenshots
 
+<img width="576" alt="image" src="https://github.com/user-attachments/assets/0aa6e3ff-f4da-4d77-8975-0881b42d3b25" />
+<img width="576" alt="image" src="https://github.com/user-attachments/assets/b52fa819-aec7-4728-a9d0-5d6b5244535e" />
+<img width="576" alt="image" src="https://github.com/user-attachments/assets/cc787a1f-3acd-4963-9bc3-63a3b6d77666" />
+<img width="576" alt="image" src="https://github.com/user-attachments/assets/a6d8cb8c-1bda-4029-9b0d-8a15e4525d72" />
 <!-- Add your pictures here. GitHub also lets you drag images into its Markdown editor. -->
 <!-- Example: ![Dark theme](docs/images/dark-theme.png) -->
 <!-- Example: ![Light theme](docs/images/light-theme.png) -->
