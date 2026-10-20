@@ -62,7 +62,7 @@ Profiles do not create separate, simultaneously active NVIDIA driver stacks.
   device state, and driver versions; preserve history and recovery files.
 - **Error reference:** explanations and Microsoft links for Device Manager codes
   0–57, with legacy/internal codes marked.
-- **Dark/light appearance:** saved theme preference and transparent NVIDIA logos.
+- **Dark/light appearance:** saved theme preference.
 
 ## Requirements
 
