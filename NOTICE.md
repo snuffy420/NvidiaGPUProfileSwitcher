@@ -8,8 +8,7 @@ The NVIDIA logo in `assets` was obtained from NVIDIA's official
 [logo and brand guidelines](https://www.nvidia.com/en-us/about-nvidia/legal-info/logo-brand-usage/).
 The transparent PNG variants render the mark for Tkinter with
 theme-appropriate black or white lettering.
-It identifies the supported hardware vendor. The logo is not covered by this
-project's MIT license. NVIDIA's published guidelines require written
+It identifies the supported hardware vendor. The logo is not covered by this project's GPL-3.0 license. NVIDIA's published guidelines require written
 authorization for logo use; inclusion here does not grant trademark rights
 or permission to redistribute it. Review the logo's use before public release.
 
