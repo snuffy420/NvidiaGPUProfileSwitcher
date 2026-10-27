@@ -214,6 +214,37 @@ def _is_link(path: Path) -> bool:
     return path.is_symlink() or getattr(path, "is_junction", lambda: False)()
 
 
+@dataclass(frozen=True)
+class CachedPackage:
+    manifest: Path
+    version: str
+    inf: Path
+
+
+def discover_cached_packages(cache_root: Path) -> list[CachedPackage]:
+    """Read cache/INF metadata for the picker; full integrity is checked on save."""
+    packages = []
+    for path in cache_root.glob("*/cache-manifest.json"):
+        try:
+            if _is_link(path) or _is_link(path.parent) or not _contained(path, cache_root):
+                continue
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if (not isinstance(data, dict) or data.get("schema") != 1
+                    or not isinstance(data.get("files"), dict) or not data["files"]
+                    or not isinstance(data.get("inf"), str) or data["inf"] not in data["files"]):
+                continue
+            version = nvidia_version(data.get("version"))
+            inf = path.parent / "package" / data["inf"]
+            if _is_link(inf) or not _contained(inf, path.parent / "package"):
+                continue
+            if inf_metadata(inf).version != version:
+                continue
+            packages.append(CachedPackage(path.resolve(), version, inf.resolve()))
+        except (OSError, ValueError, TypeError):
+            continue
+    return sorted(packages, key=lambda item: (tuple(map(int, item.version.split("."))), str(item.manifest)), reverse=True)
+
+
 def validate_manifest(path: Path, cache_root: Path, expected_version: str | None = None) -> tuple[dict, Path]:
     path = path.resolve()
     if not _contained(path, cache_root) or path.is_symlink():

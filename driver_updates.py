@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
 import re
@@ -14,12 +15,6 @@ from driver_profiles import is_nvidia, nvidia_version
 
 LOOKUP = "https://www.nvidia.com/Download/API/lookupValueSearch.aspx"
 SEARCH = "https://gfwsl.geforce.com/services_toolkit/services/com/nvidia/services/AjaxDriverService.php"
-# Exact desktop PCI IDs: never infer a notebook/OEM product from a similar name.
-PRODUCTS = {
-    "1B81": (101, "GeForce GTX 1070"),
-    "2503": (120, "GeForce RTX 3060"),
-    "2504": (120, "GeForce RTX 3060"),
-}
 
 
 def nvidia_url(url: str) -> str:
@@ -55,7 +50,73 @@ def version_key(value: str) -> tuple[int, int]:
 
 
 def product_name(value: str) -> str:
-    return " ".join(value.removeprefix("NVIDIA ").split()).casefold()
+    value = unquote(value).strip().casefold().replace("®", "").replace("™", "")
+    return " ".join(re.sub(r"^nvidia\s+", "", value).split())
+
+
+def catalogue_entries(kind: int, parent: str | None = None) -> tuple[tuple[str, str], ...]:
+    query = {"TypeID": kind}
+    if parent is not None:
+        query["ParentID"] = parent
+    root = ET.fromstring(read_catalogue(LOOKUP + "?" + urlencode(query)))
+    values = []
+    for item in root.findall(".//LookupValue"):
+        name, identifier = item.findtext("Name"), item.findtext("Value")
+        if name and identifier and identifier.isdigit():
+            values.append((name, identifier))
+    return tuple(values)
+
+
+def series_rank(name: str, gpu_name: str) -> tuple[int, int]:
+    """Order catalogue searches, without treating a partial name as a match."""
+    model = product_name(gpu_name)
+    numbers = re.findall(r"\d+", model)
+    prefixes = [number.rstrip("0") or number for number in re.findall(r"\d+", name)]
+    numeric = max((len(prefix) for prefix in prefixes for number in numbers if number.startswith(prefix)), default=0)
+    words = set(re.findall(r"[a-z]+", model)) - {"nvidia", "geforce", "series", "gpu"}
+    shared = len(words & set(re.findall(r"[a-z]+", name.casefold())))
+    return numeric, shared
+
+
+def resolve_products(gpu_name: str, taxonomy: dict) -> tuple[tuple[str, str, str], ...]:
+    """Find exact product names in NVIDIA's live category/series/product tree."""
+    def entries(kind, parent=None):
+        key = kind, parent
+        if key not in taxonomy:
+            taxonomy[key] = catalogue_entries(kind, parent)
+        return taxonomy[key]
+    expected = product_name(gpu_name)
+    categories = [item for item in entries(1) if not any(word in item[0].casefold() for word in ("cuda toolkit", "3d vision"))]
+    def category_rank(item):
+        label = product_name(item[0])
+        words = set(re.findall(r"[a-z]+", expected))
+        score = len(words & set(re.findall(r"[a-z]+", label)))
+        if "geforce" in expected:
+            score += 10 if "geforce" in label else 0
+        elif any(word in expected for word in ("quadro", "rtx", "nvs", "ion", "titan")):
+            score += 5 if words & set(re.findall(r"[a-z]+", label)) else 0
+        elif "data center" in label or "tesla" in label:
+            score += 4
+        return score
+    categories.sort(key=category_rank, reverse=True)
+    for _category, identifier in categories:
+        series = list(entries(2, identifier))
+        scores = sorted({series_rank(name, gpu_name) for name, _key in series}, reverse=True)
+        for score in scores:
+            group = [item for item in series if series_rank(item[0], gpu_name) == score]
+            missing = [(3, key) for _name, key in group if (3, key) not in taxonomy]
+            if missing:
+                # Only independent read-only catalogue requests run concurrently.
+                with ThreadPoolExecutor(max_workers=6) as workers:
+                    values = list(workers.map(lambda key: catalogue_entries(*key), missing))
+                taxonomy.update(zip(missing, values))
+            matches = [(product, series_id, product_id) for _label, series_id in group
+                       for product, product_id in taxonomy[(3, series_id)]
+                       if product_name(product) == expected]
+            if matches:
+                return tuple(matches)
+    raise ValueError("An exact product entry could not be confirmed in NVIDIA's catalogue. "
+                     "Use its official offline EXE; Windows will check the selected GPUs before installation.")
 
 
 @dataclass(frozen=True)
@@ -122,6 +183,7 @@ def check_updates(devices, os_id=135) -> list[GPUUpdate]:
     if os_id not in (57, 135):
         raise ValueError("Driver checks currently support Windows 10/11 x64.")
     results = []
+    taxonomy = {}
     for gpu in devices:
         if not is_nvidia(gpu) or gpu.present is not True:
             continue
@@ -131,18 +193,23 @@ def check_updates(devices, os_id=135) -> list[GPUUpdate]:
             installed = "unknown"
         offers, error = (), ""
         try:
-            match = re.search(r"&DEV_([0-9A-F]{4})(?:&|\\)", gpu.instance_id.upper())
-            if not match or match[1] not in PRODUCTS:
-                raise ValueError("Automatic catalogue matching is not configured for this PCI device. Use NVIDIA drivers or import its official EXE.")
-            series, product = PRODUCTS[match[1]]
-            root = ET.fromstring(read_catalogue(LOOKUP + "?" + urlencode({"TypeID": 3, "ParentID": series})))
-            ids = [item.findtext("Value") for item in root.findall(".//LookupValue")
-                   if product_name(item.findtext("Name") or "") == product_name(product)]
-            if len(ids) != 1 or not ids[0] or not ids[0].isdigit():
-                raise ValueError("NVIDIA's exact product entry could not be confirmed.")
-            query = urlencode(dict(func="DriverManualLookup", psid=series, pfid=ids[0], osID=os_id,
-                                   languageCode=1033, isWHQL=1, dch=1, numberOfResults=30, sort1=1))
-            offers = parse_offers(json.loads(read_catalogue(SEARCH + "?" + query)), product, os_id)
+            matches = resolve_products(gpu.name, taxonomy)
+            candidates = []
+            for product, series, product_id in matches:
+                packages = {}
+                for dch in (1, 0):
+                    query = urlencode(dict(func="DriverManualLookup", psid=series, pfid=product_id, osID=os_id,
+                                           languageCode=1033, isWHQL=1, dch=dch, numberOfResults=30, sort1=1))
+                    for offer in parse_offers(json.loads(read_catalogue(SEARCH + "?" + query)), product, os_id):
+                        packages[(offer.version, offer.download_url)] = offer
+                candidates.append(packages)
+            common = set(candidates[0])
+            for packages in candidates[1:]:
+                common &= set(packages)
+            if len(candidates) > 1 and not common:
+                raise ValueError("NVIDIA lists multiple exact-name product variants with different packages. "
+                                 "Choose the correct desktop/notebook or OEM driver EXE manually; no variant was guessed.")
+            offers = tuple(sorted((candidates[0][key] for key in common), key=lambda item: version_key(item.version), reverse=True))
             if not offers:
                 error = "NVIDIA returned no confirmed compatible WHQL Windows packages; availability is unknown."
         except Exception as problem:

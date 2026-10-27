@@ -3,17 +3,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path, PureWindowsPath
 import re
 import shutil
 import subprocess
 import tempfile
+import sys
 
 import cached_drivers as cache
 from driver_profiles import sha256_file, write_json
 
-APP_DIR = Path(__file__).resolve().parent
-EXTRACTOR = APP_DIR / "tools" / "7zip" / "7zr.exe"
+APP_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
+RESOURCE_DIR = Path(__file__).resolve().parent
+EXTRACTOR = RESOURCE_DIR / "tools" / "7zip" / "7zr.exe"
 EXTRACTOR_SHA256 = "256feca8e274e5da655e2a284fabafd9f554365eb164862089dacd4e8276d282"
 
 
@@ -91,9 +94,15 @@ def cache_exe(installer: Path, cache_root: Path, device_ids: list[str], fingerpr
     work_root = (work_root or APP_DIR / ".driver_imports").resolve()
     work_root.mkdir(parents=True, exist_ok=True)
     cache_root.mkdir(parents=True, exist_ok=True)
-    # Extraction and the permanent copy coexist until a complete manifest exists.
-    if shutil.disk_usage(work_root).free < required * 2 + 64 * 1024 * 1024:
-        raise RuntimeError("Not enough free space to extract and cache this display driver.")
+    # Extraction and the permanent copy can live on different volumes.
+    reserve = 64 * 1024 * 1024
+    if shutil.disk_usage(work_root).free < required + reserve:
+        raise RuntimeError("Not enough free space to extract this display driver.")
+    if shutil.disk_usage(cache_root).free < required + reserve:
+        raise RuntimeError("Not enough free space to cache this display driver.")
+    if os.path.splitdrive(str(work_root))[0].casefold() == os.path.splitdrive(str(cache_root))[0].casefold():
+        if shutil.disk_usage(work_root).free < required * 2 + reserve:
+            raise RuntimeError("Not enough free space to extract and cache this display driver.")
     with tempfile.TemporaryDirectory(prefix="nvidia-", dir=work_root) as temporary:
         work = Path(temporary).resolve()
         if work == work_root or not work.is_relative_to(work_root):
@@ -124,5 +133,5 @@ def cache_exe(installer: Path, cache_root: Path, device_ids: list[str], fingerpr
             write_json(manifest, data)
             return manifest, metadata.version
         raise RuntimeError("No display INF in this EXE supports every selected GPU. "
-                           "Choose only the RTX 3060 for a package that excludes the GTX 1070.\n"
+                           "Select only GPUs supported by this driver package.\n"
                            + "\n".join(failures[-8:]))

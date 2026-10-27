@@ -1,13 +1,12 @@
-"""Standard-library dark/light styling and local display preferences."""
+"""Dark/light Qt styling and local display preferences."""
 from __future__ import annotations
 
 import ctypes
 import json
 import os
 from pathlib import Path
-import tkinter as tk
-from tkinter import ttk
 
+from PyQt6.QtWidgets import QApplication, QScrollArea, QWidget, QVBoxLayout
 from driver_profiles import write_json
 
 PALETTES = {
@@ -31,43 +30,61 @@ def enable_dpi_awareness():
             pass
 
 
-class ScrollPane(ttk.Frame):
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.canvas = tk.Canvas(self, highlightthickness=0, borderwidth=0)
-        bar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
-        self.canvas.configure(yscrollcommand=bar.set)
-        self.canvas.pack(side="left", fill="both", expand=True)
-        bar.pack(side="right", fill="y")
-        self.content = ttk.Frame(self.canvas)
-        window = self.canvas.create_window((0, 0), window=self.content, anchor="nw")
-        self.content.bind("<Configure>", lambda _event: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
-        self.canvas.bind("<Configure>", lambda event: self.canvas.itemconfigure(window, width=event.width))
-        self.bind_all("<MouseWheel>", self.wheel, add="+")
+def apply_title_bar(widget, name: str):
+    """Match the native Windows caption to the selected palette when supported."""
+    if os.name != "nt":
+        return
+    try:
+        hwnd = ctypes.c_void_p(int(widget.winId()))
+        set_attribute = ctypes.windll.dwmapi.DwmSetWindowAttribute
+        set_attribute.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_uint]
+        set_attribute.restype = ctypes.c_long
+        dark = ctypes.c_int(name == "Dark")
+        set_attribute(hwnd, 20, ctypes.byref(dark), ctypes.sizeof(dark))
+        # Windows 11 supports explicit caption, border and text colors; Windows 10
+        # ignores these attributes and uses its native immersive dark caption.
+        def colorref(color):
+            return int(color[5:7] + color[3:5] + color[1:3], 16)
+        palette = PALETTES[name]
+        for attribute, color in ((34, palette["bg"]), (35, palette["bg"]), (36, palette["text"])):
+            value = ctypes.c_uint(colorref(color))
+            set_attribute(hwnd, attribute, ctypes.byref(value), ctypes.sizeof(value))
+    except (AttributeError, OSError):
+        pass
 
-    def wheel(self, event):
-        widget = event.widget
-        while widget is not None:
-            if widget is self:
-                if self.content.winfo_height() > self.canvas.winfo_height():
-                    self.canvas.yview_scroll(int(-event.delta / 120), "units")
-                return
-            widget = getattr(widget, "master", None)
+
+def load_settings(path: Path) -> dict:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_settings(path: Path, **changes):
+    data = load_settings(path)
+    data.update(changes)
+    data.setdefault("schema", 1)
+    write_json(path, data)
+
+
+class ScrollPane(QScrollArea):
+    def __init__(self, parent=None, fill_height=False):
+        super().__init__(parent)
+        self.setWidgetResizable(True)
+        self.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.content = QWidget()
+        self.content.setLayout(QVBoxLayout())
+        self.content.layout().setContentsMargins(0, 0, 0, 0)
+        self.setWidget(self.content)
 
 
 class Theme:
-    def __init__(self, root: tk.Tk, settings_path: Path):
+    def __init__(self, root, settings_path: Path):
         self.root = root
         self.settings_path = settings_path
-        self.name = "Dark"
-        try:
-            data = json.loads(settings_path.read_text(encoding="utf-8"))
-            if isinstance(data, dict) and data.get("theme") in PALETTES:
-                self.name = data["theme"]
-        except (OSError, ValueError):
-            pass
-        self.style = ttk.Style(root)
-        self.style.theme_use("clam")
+        saved = load_settings(settings_path).get("theme")
+        self.name = saved if saved in PALETTES else "Dark"
         self.apply(self.name)
 
     def apply(self, name: str):
@@ -75,89 +92,62 @@ class Theme:
             raise ValueError("Choose Dark or Light.")
         self.name = name
         p = PALETTES[name]
-        s = self.style
-        self.root.configure(background=p["bg"])
-        s.configure(".", background=p["bg"], foreground=p["text"], font=("Segoe UI", 10),
-                    bordercolor=p["border"], lightcolor=p["border"], darkcolor=p["border"])
-        s.configure("TFrame", background=p["bg"])
-        s.configure("Card.TFrame", background=p["panel"], borderwidth=1, relief="solid")
-        s.configure("TLabel", background=p["bg"], foreground=p["text"])
-        s.configure("Muted.TLabel", foreground=p["muted"])
-        s.configure("Title.TLabel", font=("Segoe UI", 21, "bold"))
-        s.configure("Section.TLabel", font=("Segoe UI", 16, "bold"))
-        s.configure("Card.TLabel", background=p["panel"], foreground=p["text"])
-        s.configure("CardTitle.TLabel", background=p["panel"], foreground=p["text"], font=("Segoe UI", 15, "bold"))
-        s.configure("CardMuted.TLabel", background=p["panel"], foreground=p["muted"])
-        s.configure("Kicker.TLabel", background=p["panel"], foreground=p["accent"] if name == "Dark" else "#426900",
-                    font=("Segoe UI", 9, "bold"))
-        s.configure("Badge.TLabel", background=p["raised"], foreground=p["muted"], padding=(10, 5), font=("Segoe UI", 9))
-        s.configure("Logo.TLabel", background=p["bg"], padding=0)
-        s.configure("TButton", background=p["raised"], foreground=p["text"], borderwidth=1,
-                    padding=(11, 8), relief="flat", focusthickness=1, focuscolor=p["accent"])
-        s.map("TButton", background=[("disabled", p["panel"]), ("pressed", p["hover"]), ("active", p["hover"])],
-              foreground=[("disabled", p["muted"])], bordercolor=[("focus", p["accent"])])
-        s.configure("Accent.TButton", background=p["accent"], foreground="#112000", font=("Segoe UI", 10, "bold"))
-        s.map("Accent.TButton", background=[("disabled", p["raised"]), ("active", "#8dce20"), ("pressed", "#69a300")],
-              foreground=[("disabled", p["muted"]), ("!disabled", "#112000")])
-        s.configure("Danger.TButton", foreground=p["danger"])
-        s.configure("TMenubutton", background=p["raised"], foreground=p["text"], padding=(11, 8),
-                    arrowcolor=p["muted"], borderwidth=1, relief="flat")
-        s.map("TMenubutton", background=[("active", p["hover"])], foreground=[("disabled", p["muted"])])
-        s.configure("TNotebook", background=p["bg"], borderwidth=0, tabmargins=(0, 8, 0, 0))
-        s.configure("TNotebook.Tab", background=p["bg"], foreground=p["muted"], padding=(20, 11), borderwidth=0,
-                    font=("Segoe UI", 10, "bold"))
-        s.map("TNotebook.Tab", background=[("selected", p["panel"]), ("active", p["raised"])],
-              foreground=[("selected", p["text"]), ("active", p["text"])])
-        s.configure("Treeview", background=p["panel"], fieldbackground=p["panel"], foreground=p["text"],
-                    borderwidth=0, rowheight=35)
-        s.configure("Treeview.Heading", background=p["raised"], foreground=p["muted"],
-                    padding=(10, 9), font=("Segoe UI", 9, "bold"), relief="flat")
-        s.map("Treeview", background=[("selected", p["selected"])], foreground=[("selected", p["text"])])
-        s.map("Treeview.Heading", background=[("active", p["hover"])])
-        for widget in ("TCombobox", "TEntry"):
-            s.configure(widget, fieldbackground=p["field"], background=p["raised"], foreground=p["text"],
-                        arrowcolor=p["text"], insertcolor=p["text"], padding=7)
-            s.map(widget, fieldbackground=[("readonly", p["field"]), ("disabled", p["panel"])],
-                  foreground=[("disabled", p["muted"]), ("readonly", p["text"])],
-                  selectbackground=[("!disabled", p["selected"])], selectforeground=[("!disabled", p["text"])])
-        s.configure("TCheckbutton", background=p["bg"], foreground=p["text"], padding=4)
-        s.configure("TRadiobutton", background=p["bg"], foreground=p["text"], padding=4)
-        for widget in ("TCheckbutton", "TRadiobutton"):
-            s.map(widget, background=[("active", p["bg"])], indicatorbackground=[("selected", p["accent"])])
-        s.configure("TScrollbar", background=p["raised"], troughcolor=p["bg"], arrowcolor=p["muted"], borderwidth=0)
-        s.configure("TSeparator", background=p["border"])
-        s.configure("TProgressbar", troughcolor=p["panel"], background=p["accent"], borderwidth=0)
-        for key, value in {"*Text.background": p["panel"], "*Text.foreground": p["text"],
-                           "*Text.insertBackground": p["text"], "*Text.selectBackground": p["selected"],
-                           "*Listbox.background": p["panel"], "*Listbox.foreground": p["text"],
-                           "*Listbox.selectBackground": p["selected"], "*Listbox.selectForeground": p["text"]}.items():
-            self.root.option_add(key, value)
-        self.refresh_widgets(self.root)
-
-    def refresh_widgets(self, parent):
-        p = PALETTES[self.name]
-        if isinstance(parent, (tk.Tk, tk.Toplevel)):
-            parent.configure(background=p["bg"])
-            if os.name == "nt":
-                try:
-                    value = ctypes.c_int(self.name == "Dark")
-                    handle = ctypes.windll.user32.GetParent(parent.winfo_id())
-                    ctypes.windll.dwmapi.DwmSetWindowAttribute(handle, 20, ctypes.byref(value), ctypes.sizeof(value))
-                except (AttributeError, OSError):
-                    pass
-        elif isinstance(parent, tk.Text):
-            parent.configure(background=p["panel"], foreground=p["text"], insertbackground=p["text"],
-                             selectbackground=p["selected"], selectforeground=p["text"], relief="flat",
-                             borderwidth=0, highlightthickness=1, highlightbackground=p["border"],
-                             highlightcolor=p["accent"], padx=14, pady=12)
-        elif isinstance(parent, tk.Menu):
-            parent.configure(background=p["panel"], foreground=p["text"], activebackground=p["selected"],
-                             activeforeground=p["text"], disabledforeground=p["muted"], borderwidth=0,
-                             font=("Segoe UI", 10))
-        elif isinstance(parent, tk.Canvas):
-            parent.configure(background=p["bg"])
-        for child in parent.winfo_children():
-            self.refresh_widgets(child)
+        QApplication.instance().setStyleSheet(f"""
+            QWidget {{ background: {p['bg']}; color: {p['text']}; font: 9pt 'Segoe UI'; }}
+            QMainWindow, QDialog {{ background: {p['bg']}; }}
+            QLabel {{ background: transparent; }}
+            QLabel#title {{ font-size: 15pt; font-weight: 700; }}
+            QLabel#dialogTitle {{ font-size: 11pt; font-weight: 700; }}
+            QLabel#section {{ font-size: 14pt; font-weight: 700; }}
+            QLabel#muted {{ color: {p['muted']}; }}
+            QLabel#kicker {{ color: {p['accent'] if name == 'Dark' else '#426900'}; font-size: 9pt; font-weight: 700; }}
+            QFrame#card {{ background: {p['panel']}; border: 1px solid {p['border']}; border-radius: 10px; }}
+            QPushButton {{ background: {p['raised']}; color: {p['text']}; border: 1px solid {p['border']};
+                border-radius: 7px; padding: 7px 12px; font-weight: 600; }}
+            QPushButton:hover {{ background: {p['hover']}; }}
+            QPushButton:focus {{ border: 1px solid {p['accent']}; }}
+            QPushButton:disabled {{ color: {p['muted']}; background: {p['panel']}; }}
+            QPushButton#accent {{ background: {p['accent']}; color: #112000; border: 0; }}
+            QPushButton#accent:hover {{ background: #8dce20; }}
+            QPushButton#accent:disabled {{ background: {p['raised']}; color: {p['muted']}; }}
+            QPushButton#danger {{ color: {p['danger']}; }}
+            QPushButton#windowControl, QPushButton#windowClose {{ background: transparent; border: 0;
+                border-radius: 5px; padding: 0; font-size: 15pt; font-weight: 400; }}
+            QPushButton#windowControl:hover {{ background: {p['hover']}; }}
+            QPushButton#windowClose:hover {{ background: {p['danger']}; color: {p['bg']}; }}
+            QSplitter::handle {{ background: {p['border']}; margin: 2px 0; }}
+            QPushButton#profileCard {{ text-align: left; padding: 6px 12px; background: {p['panel']}; }}
+            QPushButton#profileCard:checked {{ background: {p['selected']}; border: 2px solid {p['accent']}; }}
+            QTabWidget::pane {{ border: 0; top: 0; }}
+            QTabBar::tab {{ background: {p['raised']}; color: {p['text']}; border: 0;
+                border-radius: 7px; margin-right: 6px; padding: 8px 18px; font-weight: 600; }}
+            QTabBar::tab:selected {{ background: {p['accent']}; color: #112000; }}
+            QTabBar::tab:hover:!selected {{ background: {p['hover']}; }}
+            QLineEdit, QComboBox, QTextEdit, QPlainTextEdit, QTableWidget {{ background: {p['field']};
+                color: {p['text']}; border: 1px solid {p['border']}; border-radius: 7px; padding: 7px;
+                selection-background-color: {p['selected']}; selection-color: {p['text']}; }}
+            QComboBox::drop-down {{ border: 0; width: 22px; }}
+            QComboBox QAbstractItemView, QMenu {{ background: {p['panel']}; color: {p['text']};
+                border: 1px solid {p['border']}; selection-background-color: {p['selected']}; }}
+            QMenu::item {{ padding: 8px 24px; }}
+            QMenu::item:selected {{ background: {p['selected']}; }}
+            QHeaderView::section {{ background: {p['raised']}; color: {p['muted']}; padding: 9px;
+                border: 0; font-weight: 700; }}
+            QTableWidget {{ gridline-color: {p['border']}; }}
+            QTableWidget::item {{ padding: 6px; }}
+            QTableWidget::item:selected {{ background: {p['selected']}; color: {p['text']}; }}
+            QCheckBox, QRadioButton {{ spacing: 8px; padding: 4px; }}
+            QCheckBox::indicator, QRadioButton::indicator {{ width: 16px; height: 16px;
+                border: 1px solid {p['border']}; background: {p['field']}; }}
+            QCheckBox::indicator {{ border-radius: 4px; }}
+            QRadioButton::indicator {{ border-radius: 8px; }}
+            QCheckBox::indicator:checked, QRadioButton::indicator:checked {{ background: {p['accent']}; border-color: {p['accent']}; }}
+            QScrollBar:vertical {{ background: {p['bg']}; width: 10px; margin: 0; }}
+            QScrollBar::handle:vertical {{ background: {p['border']}; border-radius: 5px; min-height: 24px; }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+            QProgressBar {{ border: 0; border-radius: 3px; background: {p['raised']}; height: 6px; }}
+            QProgressBar::chunk {{ border-radius: 3px; background: {p['accent']}; }}
+        """)
 
     def save(self):
-        write_json(self.settings_path, {"schema": 1, "theme": self.name})
+        save_settings(self.settings_path, theme=self.name)

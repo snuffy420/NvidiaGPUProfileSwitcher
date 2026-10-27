@@ -1,255 +1,285 @@
-<!-- Save this file as README.md at the root of the GitHub repository. -->
-# NVIDIA GPU Driver Profile Switcher
+<div align="center">
+  <img src="assets/app-icon.png" alt="GPU Driver Profile Switcher icon" width="96" height="96">
+  <h1>NVIDIA GPU Driver Profile Switcher</h1>
+  <p><strong>Version 2.0</strong> &nbsp;·&nbsp; Windows 10 / 11 x64 &nbsp;·&nbsp; Qt interface</p>
+  <p><a href="https://github.com/snuffy420/NvidiaGPUProfileSwitcher/releases">Downloads</a> &nbsp;·&nbsp; <a href="#screenshots">Screenshots</a> &nbsp;·&nbsp; <a href="#installation">Installation</a> &nbsp;·&nbsp; <a href="#using-profiles">Using profiles</a> &nbsp;·&nbsp; <a href="#contact">Contact</a></p>
+</div>
 
-**Version 1.0 · Windows 10/11 x64 · Portable EXE or Python source**
+Use **older NVIDIA GPUs alongside newer NVIDIA GPUs** when the newest driver no
+longer supports every card in the computer. Save a compatible shared-driver
+configuration for local AI or other multi-GPU work, and a newer-driver
+configuration for games or applications on the newer cards. Profiles retain
+the driver package and the GPUs that should be enabled or disabled.
 
-A Windows desktop utility for making **older NVIDIA GPUs easier to use alongside
-newer NVIDIA GPUs**. New NVIDIA driver releases eventually drop support for
-older cards. This program helps mixed-generation systems keep a compatible
-older driver for shared workloads and switch to a newer driver when using only
-the GPUs it supports.
-
-It saves driver packages and the GPUs that should be enabled or disabled as
-profiles, so you can switch configurations without repeatedly removing hardware
-or downloading the same installers.
-
-This is an independent community project, not an NVIDIA product.
-
-## Why use it?
-
-The main problem this program addresses is **older and newer NVIDIA cards in
-the same computer losing access to a common latest driver**. You may still want
-to use the older cards for local AI or another multi-GPU workload, while needing
-new driver releases for games or applications on newer cards.
-
-Use one profile for a compatible shared driver with the required cards enabled,
-and another for a newer driver with unsupported older adapters disabled. Return
-to the shared profile when you need those cards again. The program is designed
-for NVIDIA GPUs across generations and product families, not a specific pair.
-
-A shared profile still requires a driver that supports every target GPU. The
-program manages installation and device states; it cannot add support for a GPU
-that NVIDIA's selected driver does not support.
-
-The program performs a real Windows driver installation when switching.
-Profiles do not create separate, simultaneously active NVIDIA driver stacks.
+The program works with NVIDIA cards across generations and product families;
+it is not tied to a particular pair of models. Each selected driver must still
+support its target hardware. Switching performs a real Windows driver
+installation and may require a restart.
 
 ## Screenshots
 
-<img width="576" alt="image" src="https://github.com/user-attachments/assets/0aa6e3ff-f4da-4d77-8975-0881b42d3b25" />
-<img width="576" alt="image" src="https://github.com/user-attachments/assets/b52fa819-aec7-4728-a9d0-5d6b5244535e" />
-<img width="576" alt="image" src="https://github.com/user-attachments/assets/cc787a1f-3acd-4963-9bc3-63a3b6d77666" />
-<img width="576" alt="image" src="https://github.com/user-attachments/assets/a6d8cb8c-1bda-4029-9b0d-8a15e4525d72" />
-<!-- Add your pictures here. GitHub also lets you drag images into its Markdown editor. -->
-<!-- Example: ![Dark theme](docs/images/dark-theme.png) -->
-<!-- Example: ![Light theme](docs/images/light-theme.png) -->
-<!-- Example: ![GPU device controls](docs/images/gpu-controls.png) -->
-<!-- Example: ![NVIDIA update checker](docs/images/update-checker.png) -->
+**Driver library · dark theme**
+
+![Version 2.0 driver library with clickable profiles, saved device states, and full driver details](assets/screenshots/driver-library-dark.png)
+
+<details>
+<summary><strong>Driver library · light theme</strong></summary>
+
+![Version 2.0 driver library in light mode](assets/screenshots/driver-library-light.png)
+
+</details>
+
+<table>
+  <tr><th>GPU inventory and device controls</th><th>Cached driver management</th></tr>
+  <tr>
+    <td><a href="assets/screenshots/gpu-inventory.png"><img src="assets/screenshots/gpu-inventory.png" alt="GPU inventory showing driver versions, enabled states, and device details" width="600"></a></td>
+    <td><a href="assets/screenshots/cache-manager.png"><img src="assets/screenshots/cache-manager.png" alt="Cache manager showing package versions, profile references, and cache locations" width="600"></a></td>
+  </tr>
+  <tr><th>Profile editor</th><th>Device Manager error reference</th></tr>
+  <tr>
+    <td><a href="assets/screenshots/profile-editor.png"><img src="assets/screenshots/profile-editor.png" alt="Profile editor with a cached driver selector and per-GPU enabled or disabled roles" width="600"></a></td>
+    <td><a href="assets/screenshots/error-reference.png"><img src="assets/screenshots/error-reference.png" alt="Searchable Device Manager problem codes and suggested next steps" width="600"></a></td>
+  </tr>
+</table>
+
+Screenshots show the actual v2.0 interface with demonstration profiles and
+device data. Example GPUs and driver versions are illustrative; they are not
+requirements or a list of the latest drivers. Click an image to view it full size.
+
+## What's new in 2.0
+
+See the [full changelog](CHANGELOG.md) for release history.
+
+- **Qt interface:** compact profile cards, green selection highlights, dark/light
+  themes, a custom window header, and resizable information panels.
+- **Cache locations:** choose a writable driver-cache folder; existing packages
+  in the selected folder are detected without moving or deleting them.
+- **Cache manager:** review driver versions, locations, saved-profile references,
+  and recovery references before deleting a package.
+- **Profile package picker:** choose an existing cached version directly, with
+  its actual driver version filled in automatically.
+- **Distribution options:** a self-contained portable version and a themed Inno
+  Setup installer, both using the application icon.
 
 ## Features
 
-- **Saved driver profiles:** record the expected driver version and the exact
-  GPUs that must work with it, including adapters that must stay disabled.
-- **Cached switching:** retain multiple display-driver packages and install the
-  selected version on the profile's GPUs.
-- **Fresh EXE import:** select an official NVIDIA offline installer and extract
-  its display driver into the cache without running NVIDIA setup.
-- **Installed-driver capture:** save a working version already on the computer.
-- **Per-GPU update checks:** check the official NVIDIA catalogue for recognized
-  GPUs and choose a compatible update.
-- **Device controls:** identify, enable, or disable individual GPUs.
-- **Verification and recovery:** check signatures, cache integrity, compatibility,
-  device state, and driver versions; preserve history and recovery files.
-- **Error reference:** explanations and Microsoft links for Device Manager codes
-  0–57, with legacy/internal codes marked.
-- **Dark/light appearance:** saved theme preference.
+| Feature | What it does |
+| --- | --- |
+| Driver profiles | Save an expected driver version and exact GPU instance IDs, including cards that should stay disabled. |
+| Cached switching | Retain several display-driver packages and switch using the selected profile's cache. |
+| NVIDIA EXE import | Extract and cache an official offline driver installer without executing NVIDIA setup. |
+| Installed-driver capture | Preserve a currently installed working version for later use. |
+| Update checks | Query NVIDIA's official catalogue for detected GPUs, including disabled adapters, and review offered updates. |
+| Device controls | Identify, enable, or disable individual GPUs using Windows device controls. |
+| Verification and recovery | Check cached files, hardware compatibility, loaded versions, and saved states; retain history and recovery files. |
+| Error reference | Search Device Manager codes 0–57, meanings, and next steps, including Code 32. |
 
-## Requirements
+## Downloads
 
-- Windows 10 version 2004 or newer, or Windows 11, **x64**.
-- For the source version only: **64-bit Python 3.10+** with Tcl/Tk.
-- Administrator rights when changing drivers or enabling/disabling GPUs.
-- Free disk space for extracted packages and cached versions.
-- Internet access for update checks and downloads; existing caches can be used
-  without a new download.
+Open [Releases](https://github.com/snuffy420/NvidiaGPUProfileSwitcher/releases)
+and choose one package:
 
-The Windows EXE includes Python, Tcl/Tk, and the required resources. Neither
-version needs pip packages to run. The portable extraction tool is included.
+| Package | Download | Python needed? |
+| --- | --- | --- |
+| **Windows installer** | [v2.0 Setup · Windows x64](https://github.com/snuffy420/NvidiaGPUProfileSwitcher/releases/latest/download/NVIDIA-GPU-Driver-Profile-Switcher-v2.0-Setup-Windows-x64.exe) | No |
+| **Portable** | [v2.0 Portable · Windows x64 · .7z](https://github.com/snuffy420/NvidiaGPUProfileSwitcher/releases/latest/download/NVIDIA-GPU-Driver-Profile-Switcher-v2.0-Portable-Windows-x64.7z) | No |
+| **Python source** | [v2.0 Source · .7z](https://github.com/snuffy420/NvidiaGPUProfileSwitcher/releases/latest/download/NVIDIA-GPU-Driver-Profile-Switcher-v2.0-Source.7z) | 64-bit Python 3.10+ and PyQt6 |
+
+Matching **`.sha256` files** are supplied for the three packages. To check a
+download in PowerShell, run `Get-FileHash .\your-downloaded-file -Algorithm SHA256`
+and compare the result with the text in its `.sha256` file.
+
+The portable and installer packages include Python, PyQt6/Qt, the application
+resources, and the extraction tool. They do not download dependencies at launch.
+NVIDIA driver packages are not included; driver downloads occur only when you
+choose to download them.
 
 ## Installation
 
-### Option 1: Portable Windows EXE
+Requires **Windows 10 version 2004 or later, or Windows 11, x64**. Administrator
+rights are required for GPU/driver changes, not for opening the app or preparing
+profiles. Allow enough free disk space for complete extracted driver packages.
 
-1. Download **NVIDIA-GPU-Driver-Profile-Switcher-v1.0-Portable-Windows-x64.7z** from
-   the repository's Releases page.
-2. Extract the complete folder to a writable location using 7-Zip or another
-   compatible extractor. Open that folder and double-click the EXE.
-   Do not run it directly from inside the archive viewer.
+### Windows installer
 
-Python, Tcl/Tk, and runtime resources are bundled. No Python installation, pip
-commands, setup wizard, or startup downloads are needed. Driver updates are
-downloaded only when you explicitly choose to download them.
+1. Download and run **NVIDIA-GPU-Driver-Profile-Switcher-v2.0-Setup-Windows-x64.exe**.
+2. Choose the installation folder and whether to create a desktop shortcut.
+3. Open the application from the Start menu or shortcut.
 
-**Why is the EXE inside another folder?** It creates settings/profile files and
-folders beside itself as features are used: `driver_cache`, `downloads`,
-`driver_history`, `recovery`, and temporary `.driver_imports` work files. The
-containing folder keeps those files together instead of scattering them across
-your Desktop or Downloads folder. Keep the EXE inside that folder, which
-must be writable. If you move the program, move its whole folder to keep
-your saved profiles and cached packages together. Avoid running the EXE loose
-on the Desktop or directly in a shared Downloads folder.
+Setup installs for the current Windows account, normally under
+`%LOCALAPPDATA%\Programs\NVIDIA GPU Driver Profile Switcher`. This is a writable
+location for profiles and settings. Installing the app does not install a GPU
+driver or change a device's state. Uninstall removes the program's installed
+files; user-created profiles, caches, downloads, and recovery files are retained.
 
-### Option 2: Python source
+### Portable
 
-1. Install **64-bit Python 3.10+** from [python.org](https://www.python.org/downloads/windows/),
-   including the **Tcl/Tk and IDLE** optional component.
-2. Run `python -m tkinter` to verify that the GUI toolkit is installed.
-   If it is missing, rerun the Python installer, choose **Modify**, and enable
-   **Tcl/Tk and IDLE**. Do not use `pip install tkinter`: Tkinter comes from
-   the Python installation. No pip packages are required by this application.
-3. Download **NVIDIA-GPU-Driver-Profile-Switcher-v1.0-Source.7z** and extract it
-   into a writable folder using 7-Zip or another compatible extractor. Keep the Python files,
-   `assets`, and `tools` together.
-4. Run **NVIDIA GPU Driver Profile Switcher.cmd**.
+1. Extract **NVIDIA-GPU-Driver-Profile-Switcher-v2.0-Portable-Windows-x64.7z**
+   using 7-Zip or another compatible extractor.
+2. Keep the extracted containing folder intact and put it in a writable location.
+3. Double-click the EXE inside it. Do not run the EXE from the archive viewer.
 
-Both versions support **Appearance → Dark / Light** and **Restart as
-administrator** when ready to make a device or driver change. Profiles,
-settings, caches, and recovery files are stored beside the EXE or source files.
+**Why is the EXE inside a folder?** The program creates profile/settings files
+and folders beside itself as you use it: `driver_cache`, `downloads`,
+`driver_history`, `recovery`, and temporary `.driver_imports` work files.
+The containing folder keeps these together instead of scattering them across
+your Desktop or Downloads folder. Move the whole application folder if you
+relocate it. The `assets` folder also carries the application icon.
 
-New users start with an empty driver library. No NVIDIA driver packages or
-another user's GPU configuration are supplied.
+### Python source
 
-## Set up your profiles
+1. Install **64-bit Python 3.10 or later** and extract the source package.
+2. In the project folder, run:
 
-### Save the working AI configuration
+   ```powershell
+   py -3 -m pip install -r requirements.txt
+   ```
 
-1. Make sure all required GPUs work on the shared driver used by your AI tools.
-2. Open **Driver library → Manage profiles → Capture working drivers**.
-3. Give the profile a recognizable name.
-4. Choose **More cache options → Cache saved profiles**.
+3. Double-click **NVIDIA GPU Driver Profile Switcher.vbs** for a console-free
+   launch, or use the CMD launcher to see startup diagnostics.
 
-This preserves a copy of the compatible package without removing the original
-from Windows. Keep this tested profile when adding newer versions.
+Version 2.0 uses **PyQt6**, not Tkinter. Keep the Python modules, `requirements.txt`,
+`assets`, and `tools` together. Use the same Python installation for pip and the
+application; `py -3 gpu_manager.py` also starts it directly.
 
-Capturing a configuration with a disabled card saves that card as **Keep
-disabled**. You can also set each GPU's role under **Manage profiles → Edit
-selected**:
+## Using profiles
 
-- **Use profile driver:** must be enabled, healthy, and use the profile version.
-- **Keep disabled:** disable this adapter when switching and retain its bound
-  package.
-- **Leave unchanged:** do not request a device-state or driver change for it.
+### 1. Preserve the shared configuration
 
-Selecting a profile does not apply these changes. They are applied only after
-you confirm the switch, with desktop and last-healthy-GPU guards still enforced.
+Start with the GPUs working on a driver compatible with your AI or multi-GPU
+environment. In **Driver library → Manage profiles → Capture working drivers**,
+save the configuration. Then use **More cache options → Cache saved profiles**
+to preserve the matching complete driver package from Windows.
 
-### Add a newer downloaded driver
+### 2. Prepare the newer-driver configuration
 
-1. Download the official NVIDIA offline driver `.exe` for your GPU.
-2. Click **Cache NVIDIA installer (.exe)…** and select that file.
-3. Select the GPUs supported by the new package. Leave unsupported or
-   intentionally disabled adapters outside that profile.
-4. Wait for signature, extraction, version, and compatibility checks to finish.
+Use **Cache NVIDIA installer (.exe)…** to import an official offline installer,
+or **More cache options → Cache installed version…** to retain an installed
+version. A new package does not replace your older cached versions.
 
-Caching does not install the driver, execute NVIDIA setup, or enable a GPU.
-The detected version comes from the package contents rather than its filename.
+Under **Manage profiles → Add profile… / Edit selected…**, choose a cached
+**Driver package** and give each GPU a role:
 
-**More cache options** also provides **Cache installed version** and
-**Import extracted INF**. INF import requires a complete extracted display
-package with its catalog and payload files, not an INF copied by itself.
-
-## Switch between AI and gaming
-
-Close games, AI jobs, and GPU monitoring tools first.
-
-| Use | Configuration |
+| Role | When switching to this profile |
 | --- | --- |
-| Multi-GPU AI | Select the tested shared-driver profile requiring both GPUs. Enable **Re-enable this profile's GPUs** when returning from a setup where a required GPU was disabled. |
-| Gaming on the newer GPU | Connect monitors to the main GPU, select the newer main-GPU profile, and save excluded adapters as **Keep disabled**. The confirmed switch applies those disabled states before installing the target package. |
+| **Use profile driver** | Install the profile's driver for this GPU and verify it. |
+| **Keep disabled** | Disable or retain the disabled state of this GPU; preserve its installed package. |
+| **Leave unchanged** | Do not make this GPU a target of the profile. |
 
-Click **Switch using cached package…**, review the exact targets, and confirm.
-The re-enable option only affects GPUs inside the selected profile.
+The package picker fills the expected version from cached metadata. Saving
+checks cache integrity and target compatibility without switching drivers.
+New profiles use the healthy enabled GPUs' current version and preserve disabled
+adapters. If healthy GPUs have different versions, choose a version explicitly.
 
-The application preserves previous package references and inventories, checks
-the cached files, and uses Windows' exact-device installation API to select
-the driver. An active outside-profile NVIDIA GPU using a different version
-blocks the switch. Its disabled state and bound version are compared afterward
-so unexpected changes are reported.
+### 3. Select, switch, and verify
 
-An outside-profile GPU explicitly saved as **Keep disabled** is disabled as part
-of the confirmed switch. A recovery helper is saved first. If that state cannot
-be reached, target-driver installation stops. Saved disabled states are included
-in profile verification.
+Click a profile card; the selected card is highlighted green. Selecting it only
+changes the selection. Use **Restart as administrator** when ready to make a
+device or driver change, then **Switch using cached package…** and review the
+confirmation. **Verify loaded profile** checks the loaded versions and saved
+device states afterward. **Use full installer…** remains available when an
+official installer has been attached to the profile.
 
-Displays may briefly blank. A restart is not always required, but restart when
-Windows requests it, then click **Verify loaded profile**. The application never
-restarts Windows automatically. If a multi-GPU switch fails partway through,
-earlier changes may have completed; the result and history identify the issue.
+Close games and AI workloads before a switch. Displays may briefly go blank;
+restart Windows if it requests one. A working Device Manager state and matching
+driver version do not prove CUDA/framework compatibility—test your actual AI
+workload after changing drivers. Profiles cannot add hardware support that the
+chosen NVIDIA driver does not provide or create independent active NVIDIA
+driver stacks for different applications.
 
-## Driver updates
+## Managing the cache
 
-Click **Check NVIDIA updates…** to query the official catalogue for each
-recognized present GPU, including disabled cards.
+- **Change cache folder…** selects an existing writable location and scans it
+  for app-cached packages. It does not move or delete files or create profiles.
+- Existing packages remain in their original locations. Current and previously
+  selected cache roots stay available to saved profiles and the package picker.
+- **Manage caches…** shows package versions, locations, saved-profile references,
+  and recovery-history references.
+- Packages used by saved profiles cannot be deleted through the cache manager.
+  Deleting a recovery-referenced package requires an additional confirmation.
+- Deleting a cached copy does not uninstall the Windows driver or remove the
+  original NVIDIA installer.
 
-The checker resolves exact product names through NVIDIA's live product-family,
-series, and product catalogue. There is no fixed list of supported GPU models.
-The lookup covers NVIDIA's desktop, notebook, professional, and data-center
-catalogue entries. Both standard and DCH Windows package searches are checked.
+Cache manifests contain absolute paths. Keep cache folders accessible; after
+moving a package, reimport or recache it and update the affected profile.
 
-If an exact product name cannot be resolved, or desktop/notebook variants have
-conflicting packages, the app reports that uncertainty instead of guessing.
-Manual EXE/INF import remains available, and Windows must confirm compatibility
-for the selected hardware before a package can be installed. A suitable NVIDIA
-driver must exist for your GPU and Windows version.
+## NVIDIA updates and EXE import
 
-The checker offers compatible non-beta WHQL Windows x64 packages. A both-GPU
-update is offered only when the same newer package is returned for every
-target. Separate latest driver branches are not combined. A single-card update
-does not replace a tested shared-driver configuration, and no update choice is
-selected automatically.
+**Check NVIDIA updates…** uses NVIDIA's public product catalogue and detected
+GPU names, including disabled cards. Choose a single-GPU update or an offered
+common package supported by all selected targets. An ambiguous lookup or failed
+request is not treated as “up to date”; manual EXE import remains available.
 
-**Download, cache and review switch…** downloads the selected package, verifies
-it, and prepares a profile before a separate installation confirmation. Older
-cached versions remain available. Failed catalogue requests are reported as
-unknown availability, not as “up to date.”
+Downloaded installers are checked for NVIDIA Authenticode signatures and
+fingerprints. The bundled `7zr.exe` extracts the display-driver files without
+executing the installer. Package versions come from INF metadata, and Windows
+checks hardware compatibility. Importing or caching does not stage a package,
+switch a driver, or enable a device. A confirmed switch is a separate action.
 
-## Verification and recovery
+## Device controls and troubleshooting
 
-- Every profile GPU must be present, have Device Manager Code 0, and match the
-  expected driver version for verification to pass.
-- A matching driver does not prove CUDA, framework, or AI workload compatibility.
-  Run a small workload in your actual environment after switching.
-- Before disabling a GPU, the program saves an inventory and an
-  `ENABLE-THIS-GPU.cmd` recovery helper. Run the helper as administrator if needed.
-- The app blocks disabling a known desktop adapter or the last present healthy
-  GPU. If the desktop connection is unknown, check monitor cabling yourself.
-- **Code 22** means the device is disabled. **Code 32** means its driver service
-  is disabled. The program does not automatically change service startup values.
+The **GPUs** tab shows detected adapters, exact instance IDs, loaded NVIDIA and
+Windows driver versions, INF names, PnP states, and available desktop information.
+**Export diagnosis** saves the displayed inventory. The **Error reference** tab
+contains offline meanings and next steps for Device Manager codes 0–57.
 
-## What cached switching includes
+Before disabling an adapter, connect monitors to another working GPU. The app
+guards known desktop/last-working adapters and saves a recovery CMD file before
+disabling. Desktop detection can be unknown, so confirm monitor cabling yourself.
 
-Cached mode changes the **display-driver package**. It does not update every
-component of the full NVIDIA installer, including NVIDIA App, PhysX, or HD Audio.
-Use **Use full installer…** when those components are needed. The full NVIDIA
-installer controls its own hardware handling.
+For **Code 32**, Windows reports that the device's driver service is disabled.
+Review the app's code reference and [Microsoft's Device Manager documentation](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/device-manager-error-messages)
+before making changes. The application does not change driver-service startup
+settings automatically.
 
-## Local files
+## Existing v1.0 users
 
-Profiles, downloaded installers, cached drivers, theme settings, switch history,
-and recovery files are created locally and excluded by `.gitignore`.
-Do not upload those machine-specific files to the repository.
+Back up your application folder, `driver_profiles.json`, `ui_settings.json`, and
+cache locations before replacing the app. Keep those data files and your cached
+packages; the downloads contain no preconfigured profiles. If you put v2.0 in a
+different folder, copy your profile/settings files deliberately and select the
+existing cache location. Profile GPU IDs are specific to the machine on which
+they were captured. Verify loaded profiles after upgrading.
 
-Cache manifests use absolute paths. If you move the application, recache or
-reimport the affected packages. `python gpu_manager.py --list` provides a
-read-only inventory; **Export diagnosis** saves the currently displayed devices.
+## Building the Windows releases
 
-## License and third-party assets
+Build on Windows x64 with x64 Python and [Inno Setup 6.7+](https://jrsoftware.org/isdl.php):
 
-This project is licensed under the [GNU General Public License v3.0](LICENSE).
+```powershell
+py -3 -m pip install -r requirements.txt pyinstaller
+py -3 tools/build_exe.py
+py -3 tools/build_installer.py --compiler "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+py -3 tools/build_release.py
+```
 
-NVIDIA trademarks, logo assets, and the bundled extractor have separate terms described in [NOTICE.md](NOTICE.md).
+Release assets and SHA-256 files are written to `dist/v2.0-github`. The source
+builder also produces a repository ZIP containing the README and screenshots.
+The build packages use explicit file lists and exclude local configurations,
+driver packages, history, recovery data, and internal tests.
 
+The original vector application icon is in `assets/app-icon.svg`. Regenerating
+its PNG/ICO files and installer artwork with `tools/create_installer_art.py`
+also requires Pillow (`py -3 -m pip install Pillow`). Ordinary builds use the
+provided artwork and do not require Pillow. The build script isolates DLL
+discovery from unrelated tools' PATH entries and rejects bundled Windows
+runtime shims that could interfere with Qt startup.
 
-## USE AT YOUR OWN RISK!!
+## License and project information
 
-I will not be held responsible for anything that happens with this tool, it is still in testing and it could leave you with no drivers/display if used incorrectly!
+Created by **snuffy420 / zerØ software**. This is an independent community
+project; it is not an NVIDIA product and is not affiliated with NVIDIA.
+
+Project source: [MIT](LICENSE). Bundled PyQt6, Qt, Python, 7-Zip, and NVIDIA
+branding have their own terms; see [NOTICE.md](NOTICE.md) and `licenses` in the
+binary packages. No NVIDIA drivers are redistributed with the application.
+
+## Contact
+
+<p align="center">
+ <a href="https://snuffy420.github.io/NvidiaGPUProfileSwitcher/docs/contact.html">
+  <img src="assets/contact-button.svg" alt="Contact snuffy420 about GPU Driver Profile Switcher" width="560">
+ </a>
+</p>
+
+[Report an issue](https://github.com/snuffy420/NvidiaGPUProfileSwitcher/issues)
+or [use the contact page](https://snuffy420.github.io/NvidiaGPUProfileSwitcher/docs/contact.html).
