@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import queue
+import shutil
 import subprocess
 import sys
 import threading
@@ -21,12 +22,13 @@ from PyQt6.QtWidgets import (QAbstractItemView, QApplication, QButtonGroup, QChe
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 import cached_drivers as cache
+import app_updates
 import driver_updates
 import gpu_manager as gm
 from driver_profiles import (DriverProfile, capture_working_profile, is_nvidia, nvidia_version,
                              save_profiles, verify_profile, write_json)
 from gpu_errors import PROBLEMS, SOURCE as ERROR_SOURCE, problem_details, problem_info
-from ui_theme import ScrollPane, Theme, apply_title_bar
+from ui_theme import ScrollPane, Theme, apply_title_bar, load_settings, save_settings
 
 
 def label(text, style=None, wrap=False):
@@ -279,11 +281,6 @@ class App(QMainWindow):
             header.addWidget(control, 0, Qt.AlignmentFlag.AlignTop)
         layout.addWidget(self.header)
         self.load_logo()
-        status_row = QHBoxLayout()
-        status_row.addWidget(label("Administrator: device controls available" if gm.is_admin() else "Preview mode · Device changes require administrator", "muted"), 1)
-        self.admin_button = button("Restart as administrator", self.elevate)
-        status_row.addWidget(self.admin_button)
-        layout.addLayout(status_row)
         self.notebook = QTabWidget()
         layout.addWidget(self.notebook, 1)
         self.build_gpu_tab()
@@ -321,6 +318,65 @@ class App(QMainWindow):
         self.timer.timeout.connect(self.poll)
         self.timer.start(100)
         self.refresh()
+        self._app_update_check_started = False
+        self.declined_update_version = load_settings(gm.SETTINGS_FILE).get("declined_update_version", "")
+        QTimer.singleShot(2500, self.auto_check_app_updates)
+
+    def auto_check_app_updates(self):
+        if self._app_update_check_started or not getattr(sys, "frozen", False):
+            return
+        if self.busy:
+            QTimer.singleShot(3000, self.auto_check_app_updates)
+            return
+        self._app_update_check_started = True
+        def worker():
+            try:
+                result = app_updates.check_for_update(gm.APP_VERSION)
+            except Exception as error:
+                result = error
+            self.events.put((self.app_update_checked, result, None))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def app_update_checked(self, result):
+        if isinstance(result, Exception):
+            self.append_log("Automatic GitHub update check failed: " + str(result))
+            return
+        if result is None or result.version == self.declined_update_version:
+            return
+        notes = result.notes or "No release notes were provided."
+        prompt = (f"Version {result.version} is available (you have {gm.APP_VERSION}).\n\n"
+                  f"{notes}\n\nDownload and install this update now? The application will close during installation and reopen when it finishes.")
+        if not confirm(self, "Application update available", prompt):
+            self.declined_update_version = result.version
+            save_settings(gm.SETTINGS_FILE, declined_update_version=result.version)
+            return
+        self.pending_update_version = result.version
+        self.start_job(f"Downloading and verifying version {result.version} from GitHub...",
+                       lambda: app_updates.download_installer(result, gm.APP_DIR / "downloads" / "updates"),
+                       self.launch_app_update)
+
+    def launch_app_update(self, installer):
+        if not getattr(sys, "frozen", False) or not Path(installer).is_file():
+            QMessageBox.critical(self, "Update could not start", "The downloaded installer is unavailable. The current version remains installed.")
+            return
+        try:
+            helper = gm.APP_DIR / "downloads" / "updates" / "GPU-Profile-Switcher-UpdateHelper.exe"
+            target_app = gm.APP_DIR / f"NVIDIA-GPU-Driver-Profile-Switcher-v{self.pending_update_version}-Portable-Windows-x64.exe"
+            helper.parent.mkdir(parents=True, exist_ok=True)
+            if helper.is_symlink():
+                raise ValueError("The update helper path is a symbolic link.")
+            shutil.copy2(sys.executable, helper)
+            subprocess.Popen([str(helper), "--apply-update", str(installer), str(os.getpid()),
+                              str(gm.APP_DIR), str(target_app)],
+                             cwd=str(gm.APP_DIR), shell=False,
+                             creationflags=getattr(subprocess, "DETACHED_PROCESS", 0)
+                             | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+        except OSError as error:
+            QMessageBox.critical(self, "Update could not start", str(error))
+            return
+        self.append_log(f"Starting verified application update from {installer}")
+        self.close()
+        QApplication.quit()
 
     def toggle_maximize(self):
         if self.isMaximized():
@@ -427,17 +483,16 @@ class App(QMainWindow):
         self.reenable_check.setChecked(True)
         frame.addWidget(self.reenable_check)
         actions = QHBoxLayout()
-        self.cached_switch_button = button("Switch using cached package...", self.launch_cached_profile, "accent")
-        self.install_profile_button = button("Use full installer...", self.launch_profile)
+        self.cached_switch_button = button("Install selected profile driver...", self.launch_cached_profile, "accent")
         self.verify_profile_button = button("Verify loaded profile", self.verify_selected_profile)
-        for widget in (self.cached_switch_button, self.install_profile_button, self.verify_profile_button):
+        for widget in (self.cached_switch_button, self.verify_profile_button):
             actions.addWidget(widget)
         self.driver_top_actions = QWidget()
         top_actions = QHBoxLayout(self.driver_top_actions)
         top_actions.setContentsMargins(0, 0, 0, 0)
         top_actions.setSpacing(6)
         self.profile_buttons = [button("Check NVIDIA updates...", self.check_driver_updates),
-                                button("Cache NVIDIA installer (.exe)...", self.cache_nvidia_installer)]
+                                button("Import and cache driver EXE...", self.cache_nvidia_installer)]
         for widget in self.profile_buttons:
             top_actions.addWidget(widget)
         self.notebook.setCornerWidget(self.driver_top_actions, Qt.Corner.TopRightCorner)
@@ -509,8 +564,6 @@ class App(QMainWindow):
         self.reenable_check.setEnabled(not self.busy)
         self.cache_folder_button.setEnabled(not self.busy)
         self.cache_manager_button.setEnabled(not self.busy)
-        self.admin_button.setEnabled(not self.busy and not gm.is_admin())
-        self.install_profile_button.setEnabled(bool(not self.busy and gm.is_admin() and profile and profile.installer and profile.sha256))
         self.cached_switch_button.setEnabled(bool(not self.busy and gm.is_admin() and profile and profile.cache_manifest))
         self.verify_profile_button.setEnabled(bool(not self.busy and profile))
         self.cache_location.setText(f"Driver cache: {gm.CACHE_ROOT}")
@@ -524,15 +577,15 @@ class App(QMainWindow):
                 return f"{device_id}\n  Not detected in the current inventory."
             return (f"{gpu.name}\n  Instance ID: {device_id}\n  Current driver: {self.version_label(gpu)} | Windows: {gpu.driver_version or 'Unknown'}\n"
                     f"  Driver INF: {gpu.driver_inf or 'Unknown'} | State: {gpu.state}\n  Location: {gpu.location or 'Unknown'}")
+        selected_inf = profile.cache_inf or "Package default INF"
         return (f"Profile: {profile.name}\nExpected NVIDIA driver: {nvidia_version(profile.expected_version)}\n"
-                f"Cached package: {profile.cache_manifest or 'Not cached — cache an NVIDIA installer or installed version'}\n"
-                f"Full installer fallback: {profile.installer or 'Not attached'}\n\nGPUs required to work:\n"
+                f"Cached package: {profile.cache_manifest or 'Not cached'}\nSelected INF: {selected_inf}\n\nGPUs required to work:\n"
                 + "\n".join(map(describe, profile.required_gpu_ids)) + "\n\nGPUs saved as disabled:\n"
                 + ("\n".join(map(describe, profile.disabled_gpu_ids)) or "None"))
 
     def profile_summary(self):
         profile = self.current_profile()
-        self.profile_detail.setPlainText(self.profile_information(profile) if profile else "Cache an NVIDIA installer or capture your working drivers to create a profile.")
+        self.profile_detail.setPlainText(self.profile_information(profile) if profile else "Cache a driver package, then add a profile and choose its GPUs.")
         self.profile_controls()
 
     def show_profile_details(self):
@@ -572,39 +625,29 @@ class App(QMainWindow):
             choice.addItems([f"{gpu.name} - {self.version_label(gpu)}" for gpu in cards])
             choice.setCurrentIndex(cards.index(gm.preferred_gpu(cards)))
             layout.addWidget(choice)
-            layout.addWidget(label("A new version gets its own profile and cache. Older cached versions remain available.", "muted", True))
+            layout.addWidget(label("This adds the installed driver package to the cache only. Create or edit a profile separately to choose its GPUs.", "muted", True))
             def selected():
                 gpu = cards[choice.currentIndex()]
                 try:
                     version = nvidia_version(gpu.driver_version)
-                    targets = [item.instance_id for item in cards if nvidia_version(item.driver_version) == version]
                 except ValueError as error:
                     QMessageBox.critical(window, "Invalid driver version", str(error))
                     return
-                profile = next((item for item in self.profiles if nvidia_version(item.expected_version) == version and {key.upper() for key in item.required_gpu_ids} == {key.upper() for key in targets}), None)
-                if profile is None:
-                    base = ("AI multi-GPU" if len(targets) > 1 else gpu.name) + " " + version
-                    name, index = base, 2
-                    while any(item.name.casefold() == name.casefold() for item in self.profiles):
-                        name, index = f"{base} {index}", index + 1
-                    profile = DriverProfile(name, version, required_gpu_ids=targets)
-                profile = replace(profile, disabled_gpu_ids=[item.instance_id for item in devices if is_nvidia(item) and item.present is True and item.problem_code == 22 and item.instance_id.upper() not in {key.upper() for key in targets}])
                 window.accept()
                 def job():
-                    if not verify_profile(profile, gm.inventory())[0]:
-                        raise RuntimeError("The selected GPU/driver state changed. Refresh and capture it again.")
-                    manifest = cache.cache_profile(profile, gm.CACHE_ROOT)
-                    updated = replace(profile, cache_manifest=str(manifest))
-                    profiles = [updated if item.name == profile.name else item for item in self.profiles]
-                    if not any(item.name == profile.name for item in profiles):
-                        profiles.append(updated)
-                    save_profiles(gm.PROFILES_FILE, profiles)
-                    return profiles, updated
+                    current = next((item for item in gm.inventory() if item.instance_id.upper() == gpu.instance_id.upper()), None)
+                    if current is None or current.present is not True or nvidia_version(current.driver_version) != version:
+                        raise RuntimeError("The selected GPU's installed driver changed. Refresh and try again.")
+                    temporary = DriverProfile(f"Cache {version}", version, required_gpu_ids=[gpu.instance_id])
+                    manifest = cache.cache_profile(temporary, gm.CACHE_ROOT)
+                    return manifest, version
                 def saved(result):
-                    self.profiles, updated = result
-                    self.reload_profile_choices(updated.name)
-                    self.status.setText(f"Cached installed version {version}. No driver was switched.")
-                    self.append_log(f"Saved installed-version cache: {updated.name}\n{updated.cache_manifest}")
+                    manifest, cached_version = result
+                    self.status.setText(f"Cached installed version {cached_version}. No profile was created.")
+                    self.append_log(f"Cached installed driver {cached_version}: {manifest}")
+                    QMessageBox.information(self, "Driver cached",
+                        f"NVIDIA {cached_version} is cached. No profile was created or GPU changed. "
+                        "Choose Add profile to select this driver and its GPUs.")
                 self.start_job("Caching the installed driver version...", job, saved)
             layout.addWidget(button("Cache this installed version", selected, "accent"))
             self.open_dialog(window)
@@ -649,80 +692,84 @@ class App(QMainWindow):
             radio = QRadioButton(choice.label)
             group.addButton(radio, index)
             layout.addWidget(radio)
-        layout.addWidget(label("Your tested AI profile is kept. A single-GPU update is not a shared multi-GPU upgrade. A common update is offered only when NVIDIA lists the same newer package for every target. Different generations cannot use separate simultaneously active NVIDIA stacks. Unsupported GPUs must be disabled before switching. Selected disabled GPUs are re-enabled only with your approval.", "muted", True))
+        layout.addWidget(label("A shared option searches for the newest NVIDIA package confirmed for every detected GPU, even if that means downgrading a GPU. Review the listed per-GPU changes carefully. Different generations cannot use separate simultaneously active NVIDIA stacks. Unsupported GPUs must be disabled before switching.", "muted", True))
         row = QHBoxLayout()
         details = button("NVIDIA release details", lambda: webbrowser.open(choices[group.checkedId()].offer.details_url))
-        download = button("Download, cache and review switch...", lambda: submit(), "accent")
+        cache_update = button("Download and cache only", lambda: submit(False))
+        install_update = button("Download, cache and install...", lambda: submit(True), "accent")
         details.setEnabled(False)
-        download.setEnabled(False)
-        group.idToggled.connect(lambda index, checked: (details.setEnabled(group.checkedId() >= 0), download.setEnabled(group.checkedId() >= 0)))
+        cache_update.setEnabled(False)
+        install_update.setEnabled(False)
+        group.idToggled.connect(lambda index, checked: (details.setEnabled(group.checkedId() >= 0),
+            cache_update.setEnabled(group.checkedId() >= 0), install_update.setEnabled(group.checkedId() >= 0)))
         row.addWidget(details)
-        row.addWidget(download)
+        row.addWidget(cache_update)
+        row.addWidget(install_update)
         row.addStretch()
         row.addWidget(button("Keep current drivers", window.reject))
         layout.addLayout(row)
-        def submit():
+        def submit(install_after):
             if group.checkedId() < 0:
                 return
             choice = choices[group.checkedId()]
-            prompt = (f"Download NVIDIA {choice.offer.version} and cache a profile for:\n{choice.label}\n\n{choice.offer.download_url}\n\n"
-                      "The EXE will not be executed. Signature and compatibility will be checked. Installation requires a separate confirmation.")
-            if not confirm(window, "Download and cache update", prompt):
+            action = ("The signed NVIDIA EXE will be extracted and all display-driver INF variants cached. "
+                      "After extraction, you will confirm before Windows installs the compatible cached INF directly; NVIDIA Setup will not run."
+                      if install_after else "The signed NVIDIA EXE will be extracted and all display-driver INF variants cached. No profile will be created and active drivers will remain unchanged.")
+            prompt = (f"Download NVIDIA {choice.offer.version} for:\n{choice.label}\n\n{choice.offer.download_url}\n\n"
+                      f"{action} Signature and GPU compatibility will be checked.")
+            title = "Download, cache, and install update" if install_after else "Download and cache update"
+            if not confirm(window, title, prompt):
                 return
             window.accept()
             def job():
                 path = driver_updates.download_offer(choice.offer, gm.APP_DIR / "downloads")
-                return gm.cache_downloaded_installer(path, list(choice.device_ids), self.profiles, expected_version=choice.offer.version)
-            self.start_job("Downloading from NVIDIA, checking signature, and caching the selected update...", job, lambda result: self.installer_cached(result, True))
+                return gm.cache_nvidia_driver(path, expected_version=choice.offer.version)
+            completion = lambda result: self.nvidia_driver_cached(result, install_after, list(choice.device_ids))
+            self.start_job("Downloading from NVIDIA, checking its signature, and caching all display INF variants...", job, completion)
         self.append_log("NVIDIA update check:\n" + "\n".join(report))
         self.open_dialog(window)
 
     def cache_nvidia_installer(self):
         if self.busy or self.profile_load_error:
             return
-        filename, _ = QFileDialog.getOpenFileName(self, "Cache a downloaded NVIDIA driver EXE (setup will not run)", "", "NVIDIA offline driver installer (*.exe)")
+        filename, _ = QFileDialog.getOpenFileName(self, "Import an official NVIDIA driver EXE", "", "NVIDIA offline driver installer (*.exe)")
         if not filename:
             return
-        def loaded(devices):
-            self.display_inventory(devices)
-            cards = [gpu for gpu in devices if is_nvidia(gpu) and gpu.present is True]
-            if not cards:
-                QMessageBox.critical(self, "No NVIDIA GPU", "No present NVIDIA GPU could be found.")
-                return
-            window, layout = dialog(self, "Cache NVIDIA installer (.exe)", 800, 440)
-            layout.addWidget(label(filename, "muted", True))
-            layout.addWidget(label("Choose the GPUs for this cached profile:"))
-            checks = []
-            for gpu in cards:
-                check = QCheckBox(f"{gpu.name} — {gpu.state}\n{gpu.instance_id}")
-                check.setChecked(gpu.instance_id == gm.preferred_gpu(cards).instance_id)
-                layout.addWidget(check)
-                checks.append((gpu.instance_id, check))
-            layout.addWidget(label("The version is detected from the EXE and selected GPUs are checked for compatibility. Unselected GPUs are excluded. Caching does not install drivers or enable devices. Disabled unselected GPUs are saved as Keep disabled.", "muted", True))
-            def submit():
-                ids = [key for key, check in checks if check.isChecked()]
-                if not ids:
-                    QMessageBox.critical(window, "Choose a GPU", "Select at least one GPU for the profile.")
-                    return
-                window.accept()
-                self.start_job("Checking NVIDIA signature, extracting EXE, and caching the compatible display package...", lambda: gm.cache_downloaded_installer(Path(filename), ids, self.profiles), self.installer_cached)
-            layout.addWidget(button("Extract and cache — leave active drivers unchanged", submit, "accent"))
-            self.open_dialog(window)
-        self.start_job("Reading GPUs for the downloaded driver profile...", gm.inventory, loaded)
+        self.start_job("Checking NVIDIA signature and caching the complete display-driver package...",
+                       lambda: gm.cache_nvidia_driver(Path(filename)), self.nvidia_driver_cached)
 
-    def installer_cached(self, result, offer_switch=False):
-        self.profiles, profile = result
-        self.reload_profile_choices(profile.name)
-        self.status.setText(f"Cached NVIDIA {profile.expected_version}. No drivers were installed or GPUs enabled.")
-        self.append_log(f"Cached EXE profile: {profile.name}\n{profile.cache_manifest}")
-        if offer_switch and gm.is_admin():
-            self.launch_cached_profile()
-        else:
-            QMessageBox.information(self, "NVIDIA EXE cached", f"Saved {profile.name}.\n\nActive drivers are unchanged. Restart as administrator if needed, then click Switch using cached package.")
+    def nvidia_driver_cached(self, result, install_after=False, device_ids=None):
+        manifest, version = result
+        self.append_log(f"Cached NVIDIA driver {version}: {manifest}")
+        self.status.setText(f"NVIDIA {version} cached. No profile was created.")
+        self.profile_controls()
+        if not install_after:
+            QMessageBox.information(self, "NVIDIA driver cached",
+                f"NVIDIA {version} is cached, including its available display-driver INF variants.\n\n"
+                "No profile was created and no GPU was changed. Choose Add profile to select this driver and the GPUs it should support.")
+            return
+        names = {gpu.instance_id.upper(): gpu.name for gpu in self.devices}
+        targets = list(device_ids or [])
+        prompt = (f"Install cached NVIDIA {version} directly from its compatible INF?\n\n"
+                  + "\n".join(names.get(item.upper(), item) for item in targets)
+                  + "\n\nThe NVIDIA setup EXE will not run. Windows will check the INF against these GPUs. "
+                  "The other active NVIDIA GPUs must already use this same driver version or be disabled. "
+                  "A restart may be required. Continue?")
+        if not gm.is_admin() or not confirm(self, "Install cached NVIDIA driver", prompt):
+            QMessageBox.information(self, "NVIDIA driver cached",
+                f"NVIDIA {version} is cached. No profile was created; add a profile when you’re ready to use it.")
+            return
+        def done(result):
+            devices, report, passed = result
+            self.display_inventory(devices)
+            self.append_log(report)
+            self.status.setText("Cached NVIDIA driver installed and verified." if passed else "Cached NVIDIA install needs attention; read the result and restart/verify if requested.")
+            QMessageBox.information(self, "Cached NVIDIA install result", report)
+        self.start_job("Selecting a compatible cached INF, backing up current drivers, and installing...",
+            lambda: gm.install_cached_nvidia_driver(manifest, version, targets), done)
 
     def import_cached_inf(self):
-        profile = self.current_profile()
-        if self.busy or profile is None or self.profile_load_error:
+        if self.busy or self.profile_load_error:
             return
         filename, _ = QFileDialog.getOpenFileName(self, "Choose an INF in the extracted NVIDIA Display.Driver folder", "", "NVIDIA display driver INF (*.inf)")
         if not filename:
@@ -730,20 +777,16 @@ class App(QMainWindow):
         def job():
             source = Path(filename)
             metadata = cache.inf_metadata(source)
-            if metadata.version != nvidia_version(profile.expected_version):
-                raise ValueError(f"This package is {metadata.version}, but the selected profile expects {profile.expected_version}.")
-            cache.preflight(source, metadata.version, profile.required_gpu_ids)
             manifest = cache.cache_package(source, gm.CACHE_ROOT)
-            updated = replace(profile, cache_manifest=str(manifest))
-            profiles = [updated if item.name == profile.name else item for item in self.profiles]
-            save_profiles(gm.PROFILES_FILE, profiles)
-            return profiles, updated
+            return manifest, metadata.version
         def done(result):
-            self.profiles, updated = result
-            self.reload_profile_choices(updated.name)
-            self.append_log(f"Imported cached package: {updated.cache_manifest}")
-            self.status.setText("Extracted driver package cached. Windows validates its signature when staging a switch.")
-        self.start_job("Checking and copying the complete extracted package...", job, done)
+            manifest, version = result
+            self.append_log(f"Cached extracted NVIDIA driver {version}: {manifest}")
+            self.status.setText(f"NVIDIA {version} cached. No profile was created.")
+            QMessageBox.information(self, "NVIDIA driver cached",
+                f"NVIDIA {version} is cached. No profile was created or GPU changed. "
+                "Choose Add profile to select this driver and its GPUs.")
+        self.start_job("Checking and caching the complete extracted driver package...", job, done)
 
     def launch_cached_profile(self):
         profile = self.current_profile()
@@ -788,15 +831,7 @@ class App(QMainWindow):
             return
         original = profile if profile and not creating else None
         if profile is None:
-            nvidia_gpus = [gpu for gpu in self.devices if is_nvidia(gpu) and gpu.present is True]
-            healthy = [gpu for gpu in nvidia_gpus if gpu.problem_code == 0]
-            versions = set()
-            for gpu in healthy:
-                try:
-                    versions.add(nvidia_version(gpu.driver_version))
-                except ValueError:
-                    versions.add("")
-            profile = DriverProfile("", next(iter(versions)) if len(versions) == 1 else "", required_gpu_ids=[gpu.instance_id for gpu in healthy], disabled_gpu_ids=[gpu.instance_id for gpu in nvidia_gpus if gpu.problem_code == 22])
+            profile = DriverProfile("", "", required_gpu_ids=[])
         window, outer = dialog(self, "Driver profile", 850, 720)
         scroll = ScrollPane()
         scroll.setMinimumHeight(100)
@@ -805,38 +840,31 @@ class App(QMainWindow):
         layout = scroll.content.layout()
         layout.setSpacing(6)
         name = QLineEdit(profile.name)
-        version = QLineEdit(profile.expected_version)
-        installer = QLineEdit(profile.installer)
         layout.addWidget(label("Profile name"))
         layout.addWidget(name)
         layout.addWidget(label("Driver package"))
-        packages = gm.discover_all_cached_packages()
-        manual = "Manual / current installed version (no cached package)"
+        packages = gm.discover_all_cached_packages(include_inf_variants=False)
         picker = QComboBox()
-        picker.addItem(manual, "")
         for item in packages:
-            picker.addItem(f"{item.version} — {item.inf.name} — {item.manifest.parent.name}", str(item.manifest))
-        index = picker.findData(profile.cache_manifest) if profile.cache_manifest else 0
+            picker.addItem(f"NVIDIA {item.version}", str(item.manifest))
+        index = -1
+        if profile.cache_manifest:
+            index = next((i for i in range(picker.count())
+                          if picker.itemData(i) == profile.cache_manifest), -1)
         if index < 0:
-            picker.addItem("Saved cached package unavailable — select another package or manual", profile.cache_manifest)
-            index = picker.count() - 1
-        picker.setCurrentIndex(index)
+            if profile.cache_manifest and picker.count():
+                picker.addItem("Previously selected package unavailable — choose another", profile.cache_manifest)
+                index = picker.count() - 1
+            else:
+                index = 0 if picker.count() else -1
+        if index >= 0:
+            picker.setCurrentIndex(index)
+        else:
+            picker.addItem("No cached driver packages — import/download one first", "")
+            picker.setEnabled(False)
         layout.addWidget(picker)
-        layout.addWidget(label("Cached packages are checked for integrity and GPU compatibility when saved.", "muted", True))
-        layout.addWidget(label("Expected driver version (NVIDIA or full Windows version)"))
-        layout.addWidget(version)
-        version.setReadOnly(bool(profile.cache_manifest))
-        layout.addWidget(label("Downloaded official NVIDIA installer (.exe)"))
-        installer_row = QHBoxLayout()
-        installer_row.addWidget(installer, 1)
-        def browse():
-            path, _ = QFileDialog.getOpenFileName(window, "Choose NVIDIA driver installer", "", "NVIDIA installer (*.exe)")
-            if path:
-                installer.setText(path)
-        installer_row.addWidget(button("Browse...", browse))
-        layout.addLayout(installer_row)
-        layout.addWidget(label("A cached selection supplies the package's actual version. Saving does not switch drivers; an installer is checked for NVIDIA signature and fingerprint.", "muted", True))
-        layout.addWidget(label("Saved GPU states (applied only after confirming a switch):"))
+        layout.addWidget(label("Choose a cached driver and the GPUs for this profile. The app selects the matching display INF automatically.", "muted", True))
+        layout.addWidget(label("Choose which GPUs this profile should use. Nothing is preselected:"))
         known = {gpu.instance_id: gpu.name for gpu in self.devices if is_nvidia(gpu)}
         for device_id in profile.required_gpu_ids + profile.disabled_gpu_ids:
             known.setdefault(device_id, device_id)
@@ -853,14 +881,6 @@ class App(QMainWindow):
             row.addWidget(choice)
             layout.addLayout(row)
             targets.append((device_id, choice))
-        def choose_package(_index):
-            path = picker.currentData()
-            selected = next((item for item in packages if str(item.manifest) == path), None)
-            version.setReadOnly(bool(path))
-            if selected:
-                version.setText(selected.version)
-                installer.clear()
-        picker.currentIndexChanged.connect(choose_package)
         row = QHBoxLayout()
         save_button = button("Save profile", lambda: save(), "accent")
         cancel_button = button("Cancel", window.reject)
@@ -869,9 +889,19 @@ class App(QMainWindow):
         row.addStretch()
         outer.addLayout(row)
         def save():
-            candidate = DriverProfile(name.text().strip(), version.text().strip(), installer.text().strip(),
+            selected_path = picker.currentData() or ""
+            if not selected_path:
+                QMessageBox.critical(window, "Choose a driver", "Cache or import an NVIDIA driver package first, then select it here.")
+                return
+            selected_package = next((item for item in packages
+                    if str(item.manifest) == selected_path), None)
+            if selected_package is None:
+                QMessageBox.critical(window, "Choose a driver", "The selected cached driver package is unavailable. Choose another package.")
+                return
+            candidate = DriverProfile(name.text().strip(), selected_package.version, "",
                 [device_id for device_id, choice in targets if choice.currentText() == "Use profile driver"],
-                cache_manifest=picker.currentData() or "", disabled_gpu_ids=[device_id for device_id, choice in targets if choice.currentText() == "Keep disabled"])
+                cache_manifest=selected_path, disabled_gpu_ids=[device_id for device_id, choice in targets if choice.currentText() == "Keep disabled"],
+                cache_inf="")
             try:
                 candidate.validate()
                 other = [item for item in self.profiles if item is not original]
@@ -883,9 +913,13 @@ class App(QMainWindow):
             def job():
                 try:
                     if candidate.cache_manifest:
-                        _, inf = cache.validate_manifest(Path(candidate.cache_manifest), gm.cache_root_for_manifest(Path(candidate.cache_manifest)), candidate.expected_version)
-                        cache.preflight(inf, nvidia_version(candidate.expected_version), candidate.required_gpu_ids)
-                    checked = replace(candidate, sha256=gm.check_installer(candidate)) if candidate.installer else candidate
+                        manifest_path = Path(candidate.cache_manifest)
+                        root = gm.cache_root_for_manifest(manifest_path)
+                        cache_inf = cache.compatible_cached_inf(manifest_path, root,
+                            candidate.expected_version, candidate.required_gpu_ids)
+                        checked = replace(candidate, cache_inf=cache_inf)
+                    else:
+                        checked = candidate
                     profiles = other + [checked]
                     save_profiles(gm.PROFILES_FILE, profiles)
                     return profiles, checked
@@ -928,7 +962,7 @@ class App(QMainWindow):
         if self.busy or profile is None:
             return
         if not gm.is_admin():
-            QMessageBox.information(self, "Administrator required", "Restart as administrator first.")
+            QMessageBox.information(self, "Administrator required", "Start the application with administrator approval first.")
             return
         reenable = self.reenable_check.isChecked()
         names = {gpu.instance_id.upper(): gpu.name for gpu in self.devices}
@@ -1133,7 +1167,7 @@ class App(QMainWindow):
             return
         window, layout = dialog(self, "Manage cached drivers", 1000, 550)
         layout.addWidget(label("Cached driver packages", "section"))
-        layout.addWidget(label("New drivers do not delete older caches. Select a package to review its location and references. Saved profiles protect their packages from deletion.", "muted", True))
+        layout.addWidget(label("Drivers are cached independently from profiles. A profile can reuse a cached package; deleting a referenced package warns you and clears that reference.", "muted", True))
         packages_table = table(["Driver", "Saved profiles", "Recovery history", "Cache folder"])
         layout.addWidget(packages_table, 1)
         detail = label("Select a package to review it.", "muted", True)
@@ -1150,7 +1184,7 @@ class App(QMainWindow):
 
         def refresh_list():
             nonlocal packages, references
-            packages = gm.discover_all_cached_packages()
+            packages = gm.discover_all_cached_packages(include_inf_variants=False)
             references = []
             packages_table.setRowCount(0)
             for package in packages:
@@ -1179,13 +1213,13 @@ class App(QMainWindow):
             names, history, warning = references[index]
             message = f"Package: {package.manifest.parent}"
             if names:
-                message += "\nUsed by saved profiles: " + ", ".join(names) + ". Edit those profiles before deleting."
+                message += "\nUsed by saved profiles: " + ", ".join(names) + ". Deleting will detach this cached INF package from those profiles."
             if history:
                 message += f"\nReferenced by {len(history)} recovery history record(s). Deleting removes this cached recovery copy."
             if warning:
                 message += "\nCannot safely check references: " + warning
             detail.setText(message)
-            delete_button.setEnabled(not names and not warning)
+            delete_button.setEnabled(not warning)
 
         def delete_selected():
             index = packages_table.currentRow()
@@ -1193,32 +1227,38 @@ class App(QMainWindow):
                 return
             package = packages[index]
             names, history, warning = references[index]
-            if names or warning:
+            if warning:
                 return
             prompt = (f"Permanently delete cached NVIDIA driver {package.version}?\n\n"
                       f"{package.manifest.parent}\n\nThis removes only this cached package, not the installed driver or original installer.")
+            if names:
+                prompt += ("\n\nThis package is used by: " + ", ".join(names) + ". The profile(s) will be kept, "
+                          "but their cached-package reference will be cleared. A saved full NVIDIA installer, if present, remains attached.")
             if history:
                 prompt += (f"\n\nWARNING: This package is referenced by {len(history)} recovery history record(s). "
                            "Deleting it removes that cached recovery copy; the history records will remain but point to a missing package.")
             if not confirm(window, "Delete cached driver", prompt):
                 return
             delete_button.setEnabled(False)
-            def done(_result):
+            def done(updated_profiles):
+                self.profiles = updated_profiles
+                self.reload_profile_choices()
                 self.append_log(f"Deleted cached package: {package.manifest.parent}")
                 self.status.setText(f"Deleted cached driver {package.version}; installed drivers were not changed.")
                 refresh_list()
             def job():
                 try:
-                    gm.delete_cached_package(package.manifest, allow_history=bool(history))
-                    return None
+                    updated = gm.delete_cached_package(package.manifest, allow_history=bool(history), detach_profiles=bool(names))
+                    return updated, ""
                 except (OSError, ValueError) as error:
-                    return str(error)
-            def completed(error):
+                    return None, str(error)
+            def completed(result):
+                updated_profiles, error = result
                 if error:
                     QMessageBox.critical(window, "Cache not deleted", error)
                     refresh_list()
                     return
-                done(None)
+                done(updated_profiles)
             self.start_job("Deleting the selected cached driver...", job, completed)
         packages_table.itemSelectionChanged.connect(selected)
         refresh_list()
@@ -1249,20 +1289,6 @@ class App(QMainWindow):
             self.append_log(message)
         self.start_job("Scanning the selected cache folder for existing driver packages...",
                        lambda: cache.discover_cached_packages(new_root), done)
-
-    def elevate(self):
-        if self.busy or gm.is_admin():
-            return
-        import ctypes
-        from ctypes import wintypes
-        shell = ctypes.windll.shell32.ShellExecuteW
-        shell.argtypes = [wintypes.HWND, wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.LPCWSTR, ctypes.c_int]
-        shell.restype = ctypes.c_ssize_t
-        result = shell(None, "runas", sys.executable, "" if getattr(sys, "frozen", False) else subprocess.list2cmdline([str(Path(gm.__file__).resolve())]), str(gm.APP_DIR), 1)
-        if result <= 32:
-            QMessageBox.critical(self, "Elevation canceled or failed", "No GPU settings were changed.")
-        else:
-            self.close()
 
     def closeEvent(self, event):
         if self.busy:

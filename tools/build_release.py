@@ -18,11 +18,13 @@ def main():
     output.mkdir(parents=True, exist_ok=True)
     archive = output / f"{name}-Source.7z"
     files = [ROOT / value for value in (
-        "gpu_manager.py", "cached_drivers.py", "driver_profiles.py", "driver_updates.py", "gpu_errors.py", "installer_cache.py", "ui_theme.py", "qt_ui.py",
-        "requirements.txt", "NVIDIA GPU Driver Profile Switcher.cmd", "NVIDIA GPU Driver Profile Switcher.vbs", "README.md", "LICENSE", "NOTICE.md", ".gitignore",
+        "gpu_manager.py", "cached_drivers.py", "driver_profiles.py", "driver_updates.py", "app_updates.py", "gpu_errors.py", "installer_cache.py", "ui_theme.py", "qt_ui.py",
+        "requirements.txt", "NVIDIA GPU Driver Profile Switcher.cmd", "NVIDIA GPU Driver Profile Switcher.vbs", "README.md", "GITHUB_README.md", "LICENSE", "NOTICE.md", ".gitignore",
+        "driver_profiles.example.json", "test_gpu_manager.py", "test_cached_drivers.py", "test_installer_updates.py", "test_ui_theme.py",
+        ".github/workflows/tests.yml",
         "assets/nvidia-logo-dark.png", "assets/nvidia-logo-light.png", "assets/app-icon.ico", "assets/app-icon.png", "assets/app-icon.svg", "assets/contact-button.svg",
-        "docs/contact.html", "docs/CONTACT.md", "docs/PACKAGE_README.md", "CHANGELOG.md", "V2.0_RELEASE_NOTES.md", ".nojekyll",
-        "tools/build_exe.py", "tools/build_installer.py", "tools/build_release.py", "tools/create_installer_art.py", "tools/installer.iss",
+        "docs/contact.html", "docs/CONTACT.md", "docs/PACKAGE_README.md", "CHANGELOG.md", "V2.0_RELEASE_NOTES.md", "V2.1_RELEASE_NOTES.md", "V2.1.1_RELEASE_NOTES.md", "V2.1.2_RELEASE_NOTES.md", "V2.1.3_RELEASE_NOTES.md", "V2.1.4_RELEASE_NOTES.md", "V2.1.5_RELEASE_NOTES.md", "V2.1.6_RELEASE_NOTES.md", "V2.1.7_RELEASE_NOTES.md", "V2.1.8_RELEASE_NOTES.md", "V2.1.9_RELEASE_NOTES.md", "V2.1.10_RELEASE_NOTES.md", "V2.2.0_RELEASE_NOTES.md", ".nojekyll",
+        "tools/build_exe.py", "tools/build_installer.py", "tools/build_release.py", "tools/create_installer_art.py", "tools/installer.iss", "tools/verify_installer.py", "tools/verify_portable.py", "tools/capture_previews.py",
         "tools/installer_art/wizard.bmp", "tools/installer_art/wizard-small.bmp", "tools/7zip/7zr.exe", "tools/7zip/License.txt", "tools/7zip/SOURCE.txt",
     )]
     files.extend(ROOT / "assets/screenshots" / f"{name}.png" for name in ("driver-library-dark", "driver-library-light", "gpu-inventory", "profile-editor", "cache-manager", "error-reference", "dark", "light"))

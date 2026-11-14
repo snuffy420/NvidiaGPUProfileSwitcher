@@ -41,8 +41,14 @@ def main():
     destination.mkdir(parents=True, exist_ok=True)
     licenses = runtime_licenses()
     version_file = ROOT / "build/version-info.txt"
-    version_file.write_text("""VSVersionInfo(ffi=FixedFileInfo(filevers=(2,0,0,0), prodvers=(2,0,0,0), mask=0x3f, flags=0, OS=0x40004, fileType=1, subtype=0, date=(0,0)), kids=[StringFileInfo([StringTable('040904B0', [StringStruct('CompanyName', 'zerØ software / snuffy420'), StringStruct('FileDescription', 'NVIDIA GPU Driver Profile Switcher'), StringStruct('FileVersion', '2.0.0.0'), StringStruct('InternalName', 'GPUDriverProfileSwitcher'), StringStruct('ProductName', 'NVIDIA GPU Driver Profile Switcher'), StringStruct('ProductVersion', '2.0'), StringStruct('OriginalFilename', 'NVIDIA-GPU-Driver-Profile-Switcher-v2.0-Portable-Windows-x64.exe')])]), VarFileInfo([VarStruct('Translation', [1033, 1200])])])""", encoding="utf-8")
-    command = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--onefile", "--windowed", "--noupx",
+    version_parts = list(map(int, APP_VERSION.split(".")))
+    if len(version_parts) > 4:
+        raise ValueError("APP_VERSION must contain no more than four numeric components.")
+    version_parts = (version_parts + [0] * 4)[:4]
+    version_tuple = f"({','.join(map(str, version_parts))})"
+    file_version = ".".join(map(str, version_parts))
+    version_file.write_text(f"""VSVersionInfo(ffi=FixedFileInfo(filevers={version_tuple}, prodvers={version_tuple}, mask=0x3f, flags=0, OS=0x40004, fileType=1, subtype=0, date=(0,0)), kids=[StringFileInfo([StringTable('040904B0', [StringStruct('CompanyName', 'zerØ software / snuffy420'), StringStruct('FileDescription', 'NVIDIA GPU Driver Profile Switcher'), StringStruct('FileVersion', '{file_version}'), StringStruct('InternalName', 'GPUDriverProfileSwitcher'), StringStruct('ProductName', 'NVIDIA GPU Driver Profile Switcher'), StringStruct('ProductVersion', '{APP_VERSION}'), StringStruct('OriginalFilename', '{name}.exe')])]), VarFileInfo([VarStruct('Translation', [1033, 1200])])])""", encoding="utf-8")
+    command = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--onefile", "--windowed", "--noupx", "--uac-admin",
                "--name", name, "--distpath", str(destination), "--workpath", str(ROOT / "build/pyinstaller"),
                "--specpath", str(ROOT / "build"), "--icon", str(ROOT / "assets/app-icon.ico"),
                "--version-file", str(version_file)]

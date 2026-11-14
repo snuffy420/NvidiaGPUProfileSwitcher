@@ -122,7 +122,8 @@ def cache_exe(installer: Path, cache_root: Path, device_ids: list[str], fingerpr
         for inf in sorted(payload.rglob("*.inf")):
             try:
                 metadata = cache.inf_metadata(inf)
-                cache.preflight(inf, metadata.version, device_ids)
+                if device_ids:
+                    cache.preflight(inf, metadata.version, device_ids)
             except (OSError, ValueError, RuntimeError) as error:
                 failures.append(f"{inf.name}: {error}")
                 continue

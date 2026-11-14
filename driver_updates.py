@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
 import json
+import html
 from pathlib import Path
 import re
 import time
@@ -18,11 +19,34 @@ SEARCH = "https://gfwsl.geforce.com/services_toolkit/services/com/nvidia/service
 
 
 def nvidia_url(url: str) -> str:
-    parsed = urlsplit(url)
+    url = html.unescape(url.strip())
+    for _ in range(3):
+        decoded = unquote(url)
+        if decoded == url:
+            break
+        url = decoded
+    try:
+        parsed = urlsplit(url)
+        port = parsed.port
+    except ValueError as error:
+        raise ValueError("NVIDIA returned a malformed download link.") from error
     host = (parsed.hostname or "").lower()
-    if (parsed.scheme != "https" or parsed.username or parsed.password or parsed.port not in (None, 443)
-            or not (host == "nvidia.com" or host.endswith(".nvidia.com") or host == "gfwsl.geforce.com")):
-        raise ValueError("NVIDIA returned a link outside its official HTTPS servers.")
+    official_host = (host == "nvidia.com" or host.endswith(".nvidia.com")
+                     or host == "geforce.com" or host.endswith(".geforce.com"))
+    if not official_host:
+        raise ValueError(f"NVIDIA returned a link on an unrecognized host ({host or 'missing host'}).")
+    if parsed.username or parsed.password:
+        raise ValueError("NVIDIA returned a link containing credentials; it was rejected.")
+    if parsed.scheme == "http" and port in (None, 80):
+        # Some catalogue responses still provide http:// links on www.nvidia.com.
+        # Upgrade the exact official host before any request is made.
+        url = parsed._replace(scheme="https", netloc=host).geturl()
+        parsed = urlsplit(url)
+        port = parsed.port
+    elif parsed.scheme != "https":
+        raise ValueError(f"NVIDIA returned a non-HTTPS link on its official host ({host}); it was rejected.")
+    if port not in (None, 443):
+        raise ValueError(f"NVIDIA returned an unexpected port on its official host ({host}).")
     return url
 
 
@@ -34,7 +58,9 @@ class NvidiaRedirect(urllib.request.HTTPRedirectHandler):
 
 def open_nvidia(url: str):
     request = urllib.request.Request(nvidia_url(url), headers={"User-Agent": "GPUManager/1.1"})
-    return urllib.request.build_opener(NvidiaRedirect()).open(request, timeout=30)
+    # NVIDIA's public catalogue can stall under load. Keep a finite but more
+    # forgiving timeout; callers report the affected GPU and continue others.
+    return urllib.request.build_opener(NvidiaRedirect()).open(request, timeout=90)
 
 
 def read_catalogue(url: str) -> bytes:
@@ -78,7 +104,7 @@ def series_rank(name: str, gpu_name: str) -> tuple[int, int]:
     return numeric, shared
 
 
-def resolve_products(gpu_name: str, taxonomy: dict) -> tuple[tuple[str, str, str], ...]:
+def resolve_products(gpu_name: str, taxonomy: dict, form_factor: str = "unknown") -> tuple[tuple[str, str, str], ...]:
     """Find exact product names in NVIDIA's live category/series/product tree."""
     def entries(kind, parent=None):
         key = kind, parent
@@ -99,7 +125,7 @@ def resolve_products(gpu_name: str, taxonomy: dict) -> tuple[tuple[str, str, str
             score += 4
         return score
     categories.sort(key=category_rank, reverse=True)
-    for _category, identifier in categories:
+    for category_label, identifier in categories:
         series = list(entries(2, identifier))
         scores = sorted({series_rank(name, gpu_name) for name, _key in series}, reverse=True)
         for score in scores:
@@ -110,11 +136,26 @@ def resolve_products(gpu_name: str, taxonomy: dict) -> tuple[tuple[str, str, str
                 with ThreadPoolExecutor(max_workers=6) as workers:
                     values = list(workers.map(lambda key: catalogue_entries(*key), missing))
                 taxonomy.update(zip(missing, values))
-            matches = [(product, series_id, product_id) for _label, series_id in group
+            matches = [(product, series_id, product_id, f"{category_label} {_label} {product}") for _label, series_id in group
                        for product, product_id in taxonomy[(3, series_id)]
                        if product_name(product) == expected]
             if matches:
-                return tuple(matches)
+                # NVIDIA repeats exact product names in desktop, notebook, and
+                # OEM branches. Use Windows' chassis classification to narrow
+                # only when the catalogue clearly labels the variant.
+                def is_notebook(match):
+                    return bool(re.search(r"notebook|laptop|mobile", match[3], re.I))
+                variants = {is_notebook(match) for match in matches}
+                if form_factor == "desktop" and True in variants:
+                    matches = [match for match in matches if not is_notebook(match)]
+                    if not matches:
+                        continue
+                elif form_factor == "notebook" and False in variants:
+                    matches = [match for match in matches if is_notebook(match)]
+                    if not matches:
+                        continue
+                return tuple((product, series_id, product_id)
+                             for product, series_id, product_id, _label in matches)
     raise ValueError("An exact product entry could not be confirmed in NVIDIA's catalogue. "
                      "Use its official offline EXE; Windows will check the selected GPUs before installation.")
 
@@ -193,13 +234,15 @@ def check_updates(devices, os_id=135) -> list[GPUUpdate]:
             installed = "unknown"
         offers, error = (), ""
         try:
-            matches = resolve_products(gpu.name, taxonomy)
+            matches = resolve_products(
+                gpu.name, taxonomy, getattr(gpu, "form_factor", "unknown")
+            )
             candidates = []
             for product, series, product_id in matches:
                 packages = {}
                 for dch in (1, 0):
                     query = urlencode(dict(func="DriverManualLookup", psid=series, pfid=product_id, osID=os_id,
-                                           languageCode=1033, isWHQL=1, dch=dch, numberOfResults=30, sort1=1))
+                                           languageCode=1033, isWHQL=1, dch=dch, numberOfResults=100, sort1=1))
                     for offer in parse_offers(json.loads(read_catalogue(SEARCH + "?" + query)), product, os_id):
                         packages[(offer.version, offer.download_url)] = offer
                 candidates.append(packages)
@@ -225,16 +268,32 @@ def update_choices(results: list[GPUUpdate]) -> list[UpdateChoice]:
             offer = gpu.newer()[0]
             choices.append(UpdateChoice(f"{gpu.name} only — {offer.version} ({offer.title})", offer, (gpu.instance_id,)))
     if len(results) > 1 and all(item.offers for item in results):
-        # A common update must be newer for every target and advertise every
-        # exact product. Never combine two different NVIDIA driver branches.
-        common = {(item.version, item.download_url): item for item in results[0].newer()}
+        # Find the newest single package NVIDIA confirms for every exact GPU,
+        # including a shared package that would downgrade one newer card.
+        common = {(item.version, item.download_url): item for item in results[0].offers}
         for gpu in results[1:]:
-            keys = {(item.version, item.download_url) for item in gpu.newer()}
+            keys = {(item.version, item.download_url) for item in gpu.offers}
             common = {key: value for key, value in common.items() if key in keys}
+        target_names = {product_name(item.name) for item in results}
+        common = {key: offer for key, offer in common.items()
+                  if target_names <= {product_name(name) for name in offer.supported}}
         if common:
             offer = max(common.values(), key=lambda item: version_key(item.version))
-            choices.append(UpdateChoice(f"Both/all {len(results)} GPUs — common driver {offer.version} (AI testing required)", offer,
-                                        tuple(item.instance_id for item in results)))
+            changed = []
+            for gpu in results:
+                try:
+                    installed, selected = version_key(gpu.installed), version_key(offer.version)
+                except ValueError:
+                    changed.append(f"{gpu.name}: current version unknown")
+                    continue
+                if selected < installed:
+                    changed.append(f"downgrade {gpu.name} {gpu.installed}→{offer.version}")
+                elif selected > installed:
+                    changed.append(f"update {gpu.name} {gpu.installed}→{offer.version}")
+            if changed:
+                choices.append(UpdateChoice(
+                    f"All {len(results)} GPUs — latest shared driver {offer.version} ({'; '.join(changed)})",
+                    offer, tuple(item.instance_id for item in results)))
     return choices
 
 

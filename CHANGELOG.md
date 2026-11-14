@@ -1,5 +1,90 @@
 # Changelog
 
+## v2.2.0 — 2026-11-14
+
+- Remove the redundant administrator-status line from the main window.
+- Simplify profile creation: select one cached driver and the GPUs to target;
+  automatically choose the matching display INF.
+- Keep driver caching separate from profile creation, retaining all display-INF
+  variants to support later GPU selection.
+- Search a wider NVIDIA catalogue range for the newest package confirmed for all
+  GPUs, label per-GPU downgrades, and allow slower catalogue responses.
+
+## v2.1.10 — 2026-11-14
+
+- Remove the redundant administrator-status line from the main window.
+
+## v2.1.9 — 2026-11-14
+
+- Show one cached driver entry in profile creation and select its compatible
+  display INF automatically from the chosen GPUs.
+
+## v2.1.8 — 2026-11-14
+
+- Increase the timeout for slow NVIDIA catalogue requests from 30 to 90 seconds.
+
+## v2.1.7 — 2026-11-14
+
+- Search up to 100 NVIDIA catalogue results per GPU when finding a common
+  supported package.
+- Offer the newest NVIDIA-confirmed package that supports all detected GPUs,
+  with explicit per-GPU upgrade/downgrade labels.
+
+## v2.1.6 — 2026-11-14
+
+- Separate driver caching from saved profile creation for downloaded and
+  imported NVIDIA installers.
+- Cache all NVIDIA display INF variants together and let each profile choose
+  the required INF and GPUs.
+- Default new profiles to no GPUs selected and name incompatible GPUs on save.
+
+## v2.1.5 — 2026-11-14
+
+- Route the download/cache/install action through the verified cached-INF
+  switch workflow instead of launching NVIDIA Setup.
+- Clarify the cache-only message and the later cached-package install action.
+
+## v2.1.4 — 2026-11-14
+
+- Pass the detected Windows form factor through to NVIDIA catalogue matching.
+
+## v2.1.3 — 2026-11-14
+
+- Use Windows desktop/notebook classification to choose NVIDIA's matching
+  catalogue branch when exact GPU names exist in multiple variants.
+- Preserve the ambiguity error when hardware type is unknown or NVIDIA does
+  not label the variants clearly.
+
+## v2.1.2 — 2026-11-14
+
+- Upgrade NVIDIA catalogue links on official NVIDIA hosts to HTTPS and report
+  insecure-protocol errors separately from unrecognized hosts.
+
+## v2.1.1 — 2026-11-14
+
+- Check GitHub for stable updates at startup and offer an in-app install.
+- Verify release installers against GitHub's published SHA-256 digest.
+- Run Setup from the elevated app context and reopen the app after updating.
+
+## v2.1 — 2026-11-14
+
+### Changed
+
+- Install the application for all users under Program Files and request
+  administrator approval on every launch.
+- Migrate profiles, settings, caches, and recovery data from the previous
+  per-user install when the new version first starts.
+- Let users delete a cached package after warning when profiles or recovery
+  history refer to it; profile references are detached when needed.
+- Download and cache confirmed NVIDIA catalogue updates, then offer the signed
+  full installer from the same update flow.
+- Expand NVIDIA catalogue URL handling for encoded links and official NVIDIA
+  download hosts.
+- Remove application-generated data during uninstall, including migrated data
+  left by the older per-user installation.
+
+## v2.0 — 2026-10-27
+
 ## v2.0 — 2026-10-27
 
 ### Added

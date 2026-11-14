@@ -234,18 +234,34 @@ def discover_cached_packages(cache_root: Path) -> list[CachedPackage]:
                     or not isinstance(data.get("inf"), str) or data["inf"] not in data["files"]):
                 continue
             version = nvidia_version(data.get("version"))
-            inf = path.parent / "package" / data["inf"]
-            if _is_link(inf) or not _contained(inf, path.parent / "package"):
+            package_root = path.parent / "package"
+            candidates = data.get("infs")
+            if candidates is None:
+                # Earlier caches copied the whole Display.Driver folder but
+                # recorded only the first INF. Recover sibling INF variants
+                # from the integrity-listed package files.
+                candidates = [name for name in data["files"] if name.casefold().endswith(".inf")]
+            if not isinstance(candidates, list):
                 continue
-            if inf_metadata(inf).version != version:
-                continue
-            packages.append(CachedPackage(path.resolve(), version, inf.resolve()))
+            for name in candidates:
+                if not isinstance(name, str) or name not in data["files"]:
+                    continue
+                inf = package_root / name
+                if _is_link(inf) or not _contained(inf, package_root):
+                    continue
+                try:
+                    candidate = inf_metadata(inf)
+                except (OSError, ValueError):
+                    continue
+                if candidate.version == version:
+                    packages.append(CachedPackage(path.resolve(), version, inf.resolve()))
         except (OSError, ValueError, TypeError):
             continue
     return sorted(packages, key=lambda item: (tuple(map(int, item.version.split("."))), str(item.manifest)), reverse=True)
 
 
-def validate_manifest(path: Path, cache_root: Path, expected_version: str | None = None) -> tuple[dict, Path]:
+def validate_manifest(path: Path, cache_root: Path, expected_version: str | None = None,
+                      inf_name: str | None = None) -> tuple[dict, Path]:
     path = path.resolve()
     if not _contained(path, cache_root) or path.is_symlink():
         raise ValueError("The cache manifest must be inside this application's driver_cache folder.")
@@ -269,10 +285,14 @@ def validate_manifest(path: Path, cache_root: Path, expected_version: str | None
     for relative, digest in manifest["files"].items():
         if not isinstance(digest, str) or sha256_file(actual[relative]) != digest:
             raise ValueError(f"Cached package file changed: {relative}. Cache the package again.")
-    inf_name = manifest.get("inf")
-    if not isinstance(inf_name, str) or inf_name not in actual:
+    candidates = manifest.get("infs")
+    if candidates is None:
+        candidates = [name for name in actual if name.casefold().endswith(".inf")]
+    selected_inf = inf_name or manifest.get("inf")
+    if (not isinstance(candidates, list) or not isinstance(selected_inf, str)
+            or selected_inf not in candidates or selected_inf not in actual):
         raise ValueError("Cached INF is missing from the manifest.")
-    inf = actual[inf_name]
+    inf = actual[selected_inf]
     metadata = inf_metadata(inf)
     if metadata.version != manifest["version"]:
         raise ValueError("Cached INF metadata does not match its manifest.")
@@ -286,11 +306,19 @@ def cache_package(source_inf: Path, cache_root: Path, published_inf="") -> Path:
     if _contained(source, cache_root) or _contained(cache_root, source):
         raise ValueError("Import the original extracted Display.Driver package, outside driver_cache.")
     files = []
+    infs = []
     for item in source.rglob("*"):
         if _is_link(item) or not _contained(item, source):
             raise ValueError("Import source contains linked files/folders; choose the actual extracted package.")
         if item.is_file():
             files.append(item)
+            if item.suffix.casefold() == ".inf":
+                try:
+                    candidate = inf_metadata(item)
+                    if candidate.version == metadata.version:
+                        infs.append(item.relative_to(source).as_posix())
+                except (OSError, ValueError):
+                    pass
     if not any(item.suffix.casefold() == ".cat" for item in files):
         raise ValueError("The package has no signature catalog (.cat). Choose the complete Display.Driver folder.")
     required = sum(item.stat().st_size for item in files)
@@ -306,7 +334,8 @@ def cache_package(source_inf: Path, cache_root: Path, published_inf="") -> Path:
               for item in package.rglob("*") if item.is_file()}
     manifest = folder / "cache-manifest.json"
     write_json(manifest, {"schema": 1, "version": metadata.version, "provider": metadata.provider,
-                         "inf": source_inf.name, "published_inf": published_inf,
+                         "inf": source_inf.relative_to(source).as_posix(), "infs": sorted(set(infs)),
+                         "published_inf": published_inf,
                          "source_inf": str(source_inf), "cached_at": datetime.now().isoformat(), "files": hashes})
     return manifest
 
@@ -315,14 +344,14 @@ def cache_profile(profile, cache_root: Path, packages: list[Package] | None = No
     expected = nvidia_version(profile.expected_version)
     profile.validate()
     # Reuse a valid private copy, including copies made for a different profile.
-    for path in cache_root.glob("*/cache-manifest.json"):
+    for item in discover_cached_packages(cache_root):
+        if item.version != expected:
+            continue
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            if not isinstance(data, dict) or data.get("version") != expected:
-                continue
-            _, inf = validate_manifest(path, cache_root, expected)
+            relative = item.inf.relative_to(item.manifest.parent / "package").as_posix()
+            _, inf = validate_manifest(item.manifest, cache_root, expected, relative)
             preflight(inf, expected, profile.required_gpu_ids)
-            return path.resolve()
+            return item.manifest.resolve()
         except (OSError, ValueError, RuntimeError):
             continue
     failures = []
@@ -338,3 +367,22 @@ def cache_profile(profile, cache_root: Path, packages: list[Package] | None = No
     detail = "\n".join(failures)
     raise RuntimeError(f"No compatible {expected} package could be cached from Windows. "
                        "Use Import extracted INF, or install that version once and cache it afterward.\n" + detail)
+
+
+def compatible_cached_inf(manifest_path: Path, cache_root: Path, version: str,
+                          device_ids: list[str]) -> str:
+    """Return the first cached INF that Windows accepts for every selected GPU."""
+    candidates = [item for item in discover_cached_packages(manifest_path.parent.parent)
+                  if item.manifest.resolve() == manifest_path.resolve()]
+    failures = []
+    for item in candidates:
+        try:
+            relative = item.inf.relative_to(manifest_path.parent / "package").as_posix()
+            _, inf = validate_manifest(manifest_path, cache_root, version, relative)
+            preflight(inf, version, device_ids)
+            return relative
+        except (OSError, ValueError, RuntimeError) as error:
+            failures.append(str(error))
+    raise RuntimeError("No cached INF in this driver package supports every selected GPU. "
+                       "Choose only supported GPUs or select a different cached driver.\n"
+                       + "\n".join(failures[-8:]))

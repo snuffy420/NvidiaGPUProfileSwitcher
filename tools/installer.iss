@@ -1,6 +1,6 @@
 #define AppName "NVIDIA GPU Driver Profile Switcher"
-#define AppVersion "2.0"
-#define PortableName "NVIDIA-GPU-Driver-Profile-Switcher-v2.0-Portable-Windows-x64.exe"
+#define AppVersion "2.2.0"
+#define PortableName "NVIDIA-GPU-Driver-Profile-Switcher-v2.2.0-Portable-Windows-x64.exe"
 #ifndef AppIdValue
   #define AppIdValue "{{9A365626-8393-4FD5-B731-10BB713E4E42}"
 #endif
@@ -14,16 +14,17 @@ AppPublisher=zerØ software / snuffy420
 AppPublisherURL=https://github.com/snuffy420/NvidiaGPUProfileSwitcher
 AppSupportURL=https://github.com/snuffy420/NvidiaGPUProfileSwitcher/issues
 AppUpdatesURL=https://github.com/snuffy420/NvidiaGPUProfileSwitcher/releases
-VersionInfoVersion=2.0.0.0
+VersionInfoVersion={#AppVersion}.0
 VersionInfoCompany=zerØ software
 VersionInfoDescription={#AppName} Setup
-DefaultDirName={localappdata}\Programs\NVIDIA GPU Driver Profile Switcher
+DefaultDirName={autopf}\NVIDIA GPU Driver Profile Switcher
+UsePreviousAppDir=no
 DefaultGroupName={#AppName}
-PrivilegesRequired=lowest
+PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-OutputDir=..\dist\v2.0-github
-OutputBaseFilename=NVIDIA-GPU-Driver-Profile-Switcher-v2.0-Setup-Windows-x64
+OutputDir=..\dist\v{#AppVersion}-github
+OutputBaseFilename=NVIDIA-GPU-Driver-Profile-Switcher-v{#AppVersion}-Setup-Windows-x64
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern dark windows11 includetitlebar hidebevels
@@ -47,12 +48,12 @@ RestartApplications=no
 SetupLogging=yes
 
 [Messages]
-WelcomeLabel1=GPU Driver Profile Switcher 2.0
-WelcomeLabel2=Install the application for this Windows account.%n%nPython and Qt are included. Setup does not download dependencies or install NVIDIA drivers.%n%nYour saved profiles and driver caches are kept when upgrading.
+WelcomeLabel1=GPU Driver Profile Switcher {#AppVersion}
+WelcomeLabel2=Install NVIDIA GPU Driver Profile Switcher for all users.%n%nThe application starts with administrator rights because it manages system GPU drivers. Python and Qt are included. Setup does not download dependencies or install NVIDIA drivers.%n%nYour saved profiles and driver caches are kept when upgrading.
 FinishedHeadingLabel=Installation complete
-FinishedLabel=GPU Driver Profile Switcher 2.0 is installed.%n%nOpen the application to prepare profiles or manage cached drivers. Changing GPU or driver state requires Restart as administrator inside the app.
-SelectDirDesc=Choose a writable application folder.
-SelectDirLabel3=Profiles and settings are saved beside the application. The default folder is writable for this Windows account.
+FinishedLabel=GPU Driver Profile Switcher {#AppVersion} is installed.%n%nOpen the application to prepare profiles or manage cached drivers. Windows will request administrator approval whenever the app starts. Uninstall removes the application's profiles, driver caches, downloads, settings, and recovery files.
+SelectDirDesc=Choose the application folder.
+SelectDirLabel3=Profiles and settings are saved beside the application. The application runs as administrator to write its data and manage drivers.
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
@@ -70,7 +71,22 @@ Name: "{group}\{#AppName}"; Filename: "{app}\{#PortableName}"; WorkingDir: "{app
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#PortableName}"; WorkingDir: "{app}"; IconFilename: "{app}\assets\app-icon.ico"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#PortableName}"; Description: "Open GPU Driver Profile Switcher"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#PortableName}"; Description: "Open GPU Driver Profile Switcher"; Flags: nowait postinstall skipifsilent runascurrentuser
+
+[UninstallDelete]
+; Remove app-created state beside the executable as well as Inno's tracked files.
+Type: filesandordirs; Name: "{app}\.driver_imports"
+Type: filesandordirs; Name: "{app}\driver_cache"
+Type: filesandordirs; Name: "{app}\downloads"
+Type: filesandordirs; Name: "{app}\driver_history"
+Type: filesandordirs; Name: "{app}\recovery"
+Type: filesandordirs; Name: "{app}\driver_profiles.json"
+Type: filesandordirs; Name: "{app}\ui_settings.json"
+Type: filesandordirs; Name: "{app}\last-driver-update-check.json"
+Type: filesandordirs; Name: "{app}\pending-driver-switch.json"
+Type: filesandordirs; Name: "{app}\update-install.log"
+; Remove data left by the older per-user installation after it has been migrated.
+Type: filesandordirs; Name: "{localappdata}\Programs\NVIDIA GPU Driver Profile Switcher"
 
 [Code]
 function LoadImageFile(Instance: THandle; FileName: String; ImageType: UINT; Width, Height: Integer; Flags: UINT): THandle;

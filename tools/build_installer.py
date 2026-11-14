@@ -6,8 +6,10 @@ import shutil
 import subprocess
 import sys
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
 from build_exe import checksum
+from gpu_manager import APP_VERSION
 
 
 def main():
@@ -20,7 +22,7 @@ def main():
     if not compiler.is_file():
         raise SystemExit("Supply --compiler with the path to Inno Setup 6.7+ ISCC.exe.")
     subprocess.run([str(compiler), "/Qp", str(ROOT / "tools/installer.iss")], cwd=ROOT, check=True)
-    executable = ROOT / "dist/v2.0-github/NVIDIA-GPU-Driver-Profile-Switcher-v2.0-Setup-Windows-x64.exe"
+    executable = ROOT / f"dist/v{APP_VERSION}-github/NVIDIA-GPU-Driver-Profile-Switcher-v{APP_VERSION}-Setup-Windows-x64.exe"
     checksum(executable)
     print(f"Built {executable} ({executable.stat().st_size:,} bytes)")
 

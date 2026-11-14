@@ -1,7 +1,7 @@
 """Windows GPU Manager. Python 3.10+ and PyQt6.
 
-Opening this app only reads devices. Mutations require elevation, an explicit
-selection and confirmation. --list is a read-only JSON diagnostic command.
+The GUI runs elevated because it manages system GPU drivers. Mutations still
+require an explicit selection and confirmation. --list is a read-only diagnostic.
 """
 from __future__ import annotations
 
@@ -38,13 +38,21 @@ CACHE_ROOT = APP_DIR / "driver_cache"
 CACHE_ROOTS = []
 SETTINGS_FILE = APP_DIR / "ui_settings.json"
 APP_NAME = "NVIDIA GPU Driver Profile Switcher"
-APP_VERSION = "2.0"
+APP_VERSION = "2.2.0"
 
 
 INVENTORY_SCRIPT = r"""
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$computer = Get-CimInstance Win32_ComputerSystem
+$chassis = @(Get-CimInstance Win32_SystemEnclosure | ForEach-Object { $_.ChassisTypes })
+$formFactor = 'unknown'
+if ($computer.PCSystemType -eq 2 -or ($chassis | Where-Object { $_ -in 8,9,10,14,30,31,32 })) {
+    $formFactor = 'notebook'
+} elseif ($computer.PCSystemType -in 1,3 -or ($chassis | Where-Object { $_ -in 3,4,5,6,7,15,16,17,23 })) {
+    $formFactor = 'desktop'
+}
 $devices = @(Get-PnpDevice -Class Display | ForEach-Object {
     $device = $_
     $properties = @{}
@@ -60,6 +68,7 @@ $devices = @(Get-PnpDevice -Class Display | ForEach-Object {
         driver_version = $properties['DEVPKEY_Device_DriverVersion']
         driver_inf = $properties['DEVPKEY_Device_DriverInfPath']
         location = $properties['DEVPKEY_Device_LocationInfo']
+        form_factor = $formFactor
     }
 })
 ConvertTo-Json -InputObject $devices -Depth 4 -Compress
@@ -93,6 +102,84 @@ def is_admin() -> bool:
     return os.name == "nt" and bool(ctypes.windll.shell32.IsUserAnAdmin())
 
 
+def migrate_legacy_data():
+    """Preserve data from the earlier per-user installer on first Program Files launch."""
+    if os.name != "nt":
+        return
+    local = os.environ.get("LOCALAPPDATA")
+    if not local:
+        return
+    legacy = Path(local) / "Programs" / APP_NAME
+    if legacy.resolve() == APP_DIR.resolve() or not legacy.is_dir():
+        return
+    names = ("driver_profiles.json", "ui_settings.json", "last-driver-update-check.json",
+             "pending-driver-switch.json", "driver_cache", "driver_history", "recovery",
+             "downloads", ".driver_imports")
+    for name in names:
+        source, destination = legacy / name, APP_DIR / name
+        if not source.exists() or destination.exists():
+            continue
+        if source.is_dir():
+            shutil.copytree(source, destination)
+        else:
+            shutil.copy2(source, destination)
+
+
+def apply_app_update(installer: Path, parent_pid: int, install_dir: Path, application: Path) -> int:
+    """Wait for the app to exit, run its verified Setup package, then reopen it."""
+    if not is_admin():
+        raise RuntimeError("Administrator rights are required to apply an application update.")
+    installer = Path(installer).resolve()
+    install_dir = Path(install_dir).resolve()
+    application = Path(application).resolve()
+    if not installer.is_file() or installer.suffix.casefold() != ".exe":
+        raise ValueError("The verified application installer is missing.")
+    if (application.parent != install_dir
+            or not re.fullmatch(r"NVIDIA-GPU-Driver-Profile-Switcher-v\d+(?:\.\d+){1,3}-Portable-Windows-x64\.exe", application.name)):
+        raise ValueError("The updated application path could not be confirmed.")
+    if parent_pid > 0:
+        kernel = ctypes.windll.kernel32
+        kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel.OpenProcess.restype = wintypes.HANDLE
+        kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        kernel.WaitForSingleObject.restype = wintypes.DWORD
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        handle = kernel.OpenProcess(0x00100000, False, parent_pid)  # SYNCHRONIZE
+        if handle:
+            try:
+                kernel.WaitForSingleObject(handle, 0xFFFFFFFF)
+            finally:
+                kernel.CloseHandle(handle)
+    log = install_dir / "update-install.log"
+    try:
+        result = subprocess.run([str(installer), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART",
+                                 f"/LOG={log}"], cwd=str(installer.parent), shell=False,
+                               timeout=1800, capture_output=True,
+                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except Exception as error:
+        ctypes.windll.user32.MessageBoxW(None, f"The update installer could not run.\n\n{error}",
+                                         APP_NAME, 0x10)
+        return 1
+    if result.returncode != 0:
+        ctypes.windll.user32.MessageBoxW(None,
+            f"The update installer exited with code {result.returncode}. The current app files were left for review.\n\nSetup log: {log}",
+            APP_NAME, 0x10)
+        return result.returncode or 1
+    if not application.is_file():
+        ctypes.windll.user32.MessageBoxW(None,
+            f"The update installed, but the new app executable was not found. Start it from the Start menu.\n\nExpected: {application}",
+            APP_NAME, 0x10)
+        return 1
+    try:
+        subprocess.Popen([str(application)], cwd=str(install_dir), shell=False)
+    except OSError as error:
+        ctypes.windll.user32.MessageBoxW(None,
+            f"The update installed, but the app could not reopen automatically. Start it from the Start menu.\n\n{error}",
+            APP_NAME, 0x30)
+        return 1
+    return 0
+
+
 def preferred_gpu(cards):
     """Prefer a healthy desktop adapter without assuming any model or index."""
     candidates = [gpu for gpu in cards if gpu.problem_code == 0] or cards
@@ -110,6 +197,7 @@ class GPU:
     driver_inf: str | None = None
     location: str | None = None
     desktop: str = "Unknown"
+    form_factor: str = "unknown"
 
     @property
     def state(self) -> str:
@@ -226,7 +314,7 @@ def recovery_file(gpu: GPU, devices: list[GPU]) -> Path:
 
 def change_device(instance_id: str, action: str) -> tuple[list[GPU], str]:
     if not is_admin():
-        raise RuntimeError("Restart as administrator before changing a GPU.")
+        raise RuntimeError("Administrator rights are required to change a GPU.")
     # Inventory and safety checks run again immediately before the mutation.
     validate_action(inventory(), instance_id, action)
     result = run_command([system_exe("pnputil.exe"), f"/{action}-device", instance_id])
@@ -320,6 +408,31 @@ def cache_downloaded_installer(path: Path, device_ids: list[str], profiles: list
     return updated, saved
 
 
+def cache_nvidia_driver(path: Path, expected_version: str = "") -> tuple[Path, str]:
+    """Authenticate and cache the NVIDIA display package without creating a profile."""
+    fingerprint = check_nvidia_exe(path)
+    manifest, version = installer_cache.cache_exe(
+        path, CACHE_ROOT, [], fingerprint, work_root=APP_DIR / ".driver_imports")
+    if expected_version and nvidia_version(expected_version) != version:
+        raise RuntimeError(f"The downloaded EXE contains {version}, but NVIDIA offered {expected_version}. "
+                           "The extracted driver package was cached, but no profile was created.")
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    data["installer_source"] = str(path.resolve())
+    data["installer_sha256"] = fingerprint
+    write_json(manifest, data)
+    return manifest, version
+
+
+def install_cached_nvidia_driver(manifest: Path, version: str, device_ids: list[str]):
+    """Install through the cached INF that matches the selected GPUs, without saving a profile."""
+    root = cache_root_for_manifest(manifest)
+    relative_inf = cache.compatible_cached_inf(manifest, root, version, device_ids)
+    temporary_profile = DriverProfile(
+        f"NVIDIA {version} install", version, required_gpu_ids=list(device_ids),
+        cache_manifest=str(manifest), cache_inf=relative_inf)
+    return switch_cached_profile(temporary_profile, reenable=False)
+
+
 def install_profile(profile: DriverProfile, reenable: bool) -> tuple[list[GPU], str, bool]:
     """Launch the visible official installer and report the actual loaded state.
 
@@ -327,7 +440,7 @@ def install_profile(profile: DriverProfile, reenable: bool) -> tuple[list[GPU], 
     edits. Reinstalling a profile affects the system's NVIDIA driver stack.
     """
     if not is_admin():
-        raise RuntimeError("Restart as administrator before installing a driver profile.")
+        raise RuntimeError("Administrator rights are required to install a driver profile.")
     check_installer(profile, compare_hash=True)
     before = inventory()
     by_id = {gpu.instance_id.upper(): gpu for gpu in before}
@@ -420,7 +533,9 @@ def cache_profiles(profiles: list[DriverProfile]) -> tuple[list[DriverProfile], 
     for index, profile in enumerate(profiles):
         try:
             manifest = cache.cache_profile(profile, CACHE_ROOT, packages)
-            updated[index] = replace(profile, cache_manifest=str(manifest))
+            cache_inf = cache.compatible_cached_inf(manifest, CACHE_ROOT, profile.expected_version,
+                                                    profile.required_gpu_ids)
+            updated[index] = replace(profile, cache_manifest=str(manifest), cache_inf=cache_inf)
             save_profiles(PROFILES_FILE, updated)
             lines.append(f"Cached {profile.name}: {manifest}")
         except (OSError, ValueError, RuntimeError) as error:
@@ -430,11 +545,12 @@ def cache_profiles(profiles: list[DriverProfile]) -> tuple[list[DriverProfile], 
 
 def switch_cached_profile(profile: DriverProfile, reenable: bool) -> tuple[list[GPU], str, bool]:
     if not is_admin():
-        raise RuntimeError("Restart as administrator before switching cached drivers.")
+        raise RuntimeError("Administrator rights are required to switch cached drivers.")
     profile.validate()
     if not profile.cache_manifest:
         raise ValueError("Cache this profile first, or import its extracted INF package.")
-    manifest, inf = cache.validate_manifest(Path(profile.cache_manifest), cache_root_for_manifest(Path(profile.cache_manifest)), profile.expected_version)
+    manifest, inf = cache.validate_manifest(Path(profile.cache_manifest),
+        cache_root_for_manifest(Path(profile.cache_manifest)), profile.expected_version, profile.cache_inf or None)
     before = inventory()
     by_id = {gpu.instance_id.upper(): gpu for gpu in before}
     target_ids = {device_id.upper() for device_id in profile.required_gpu_ids}
@@ -608,13 +724,14 @@ def cache_root_for_manifest(manifest: Path) -> Path:
     raise ValueError("The cache manifest must be inside a configured driver cache folder.")
 
 
-def discover_all_cached_packages():
+def discover_all_cached_packages(include_inf_variants=True):
     packages = []
     seen = set()
     for root in [CACHE_ROOT, *CACHE_ROOTS]:
         for package in cache.discover_cached_packages(root):
-            if package.manifest not in seen:
-                seen.add(package.manifest)
+            key = (package.manifest, package.inf) if include_inf_variants else package.manifest
+            if key not in seen:
+                seen.add(key)
                 packages.append(package)
     return sorted(packages, key=lambda item: (tuple(map(int, item.version.split("."))), str(item.manifest)), reverse=True)
 
@@ -651,7 +768,7 @@ def cache_references(manifest: Path, profiles: list[DriverProfile]):
     return profile_names, history
 
 
-def delete_cached_package(manifest: Path, allow_history=False):
+def delete_cached_package(manifest: Path, allow_history=False, detach_profiles=False):
     """Delete only an unlinked, recognized package after checking live references."""
     manifest = Path(manifest)
     if not manifest.is_absolute() or manifest.name != "cache-manifest.json":
@@ -667,7 +784,7 @@ def delete_cached_package(manifest: Path, allow_history=False):
     cache.validate_manifest(manifest, root)
     profiles = load_profiles(PROFILES_FILE)
     names, history = cache_references(manifest, profiles)
-    if names:
+    if names and not detach_profiles:
         raise ValueError("This package is used by saved profiles: " + ", ".join(names) + ". Edit those profiles first.")
     if history and not allow_history:
         raise ValueError("This package is referenced by recovery history; explicit confirmation is required.")
@@ -679,7 +796,13 @@ def delete_cached_package(manifest: Path, allow_history=False):
         raise ValueError("The cached package folder is missing or linked.")
     if any(cache._is_link(item) or not item.resolve().is_relative_to(package.resolve()) for item in package.rglob("*")):
         raise ValueError("The cached package contains linked files; no files were deleted.")
+    if names:
+        updated = [replace(profile, cache_manifest="", cache_inf="") if profile.name in names else profile for profile in profiles]
+        save_profiles(PROFILES_FILE, updated)
+    else:
+        updated = profiles
     shutil.rmtree(folder)
+    return updated
 
 
 def check_runtime(report_path: Path):
@@ -723,11 +846,29 @@ if __name__ == "__main__":
         console = ctypes.windll.kernel32.GetConsoleWindow()
         if console:
             ctypes.windll.user32.ShowWindow(ctypes.c_void_p(console), 0)
-    if "--check-runtime" in sys.argv:
+    if "--apply-update" in sys.argv:
+        index = sys.argv.index("--apply-update")
+        if len(sys.argv) <= index + 4:
+            raise SystemExit("Usage: --apply-update <installer.exe> <parent-process-id> <install-dir> <app-exe>")
+        raise SystemExit(apply_app_update(Path(sys.argv[index + 1]), int(sys.argv[index + 2]),
+                                          Path(sys.argv[index + 3]), Path(sys.argv[index + 4])))
+    elif "--check-runtime" in sys.argv:
         check_runtime(Path(sys.argv[sys.argv.index("--check-runtime") + 1]))
     elif "--list" in sys.argv:
         print(json.dumps([asdict(gpu) for gpu in inventory()], indent=2))
     else:
+        if not is_admin():
+            from ctypes import wintypes
+            shell = ctypes.windll.shell32.ShellExecuteW
+            shell.argtypes = [wintypes.HWND, wintypes.LPCWSTR, wintypes.LPCWSTR,
+                              wintypes.LPCWSTR, wintypes.LPCWSTR, ctypes.c_int]
+            shell.restype = ctypes.c_ssize_t
+            arguments = [str(Path(__file__).resolve()), *sys.argv[1:]]
+            result = shell(None, "runas", sys.executable, subprocess.list2cmdline(arguments), str(APP_DIR), 1)
+            if result <= 32:
+                raise SystemExit("Administrator approval is required to start the application.")
+            raise SystemExit(0)
+        migrate_legacy_data()
         from PyQt6.QtWidgets import QApplication
         enable_dpi_awareness()
         application = QApplication.instance() or QApplication(sys.argv[:1])

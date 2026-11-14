@@ -1,7 +1,7 @@
 <div align="center">
   <img src="assets/app-icon.png" alt="GPU Driver Profile Switcher icon" width="96" height="96">
   <h1>NVIDIA GPU Driver Profile Switcher</h1>
-  <p><strong>Version 2.0</strong> &nbsp;·&nbsp; Windows 10 / 11 x64 &nbsp;·&nbsp; Qt interface</p>
+  <p><strong>Version 2.2.0</strong> &nbsp;·&nbsp; Windows 10 / 11 x64 &nbsp;·&nbsp; Qt interface</p>
   <p><a href="https://github.com/snuffy420/NvidiaGPUProfileSwitcher/releases">Downloads</a> &nbsp;·&nbsp; <a href="#screenshots">Screenshots</a> &nbsp;·&nbsp; <a href="#installation">Installation</a> &nbsp;·&nbsp; <a href="#using-profiles">Using profiles</a> &nbsp;·&nbsp; <a href="#contact">Contact</a></p>
 </div>
 
@@ -46,6 +46,78 @@ Screenshots show the actual v2.0 interface with demonstration profiles and
 device data. Example GPUs and driver versions are illustrative; they are not
 requirements or a list of the latest drivers. Click an image to view it full size.
 
+## What's new in 2.2.0
+
+- Remove the redundant administrator-status line from the main window.
+- Show one cached driver entry in profile creation and automatically choose a
+  compatible display INF for the selected GPUs.
+- Keep driver caching separate from profile creation and find a common NVIDIA
+  package for all GPUs when one is available.
+- Increase the NVIDIA catalogue timeout to handle slower responses.
+
+## What's new in 2.1.9
+
+- Simplify profile driver selection to one entry per cached driver version; the
+  app chooses the compatible display INF for the selected GPUs.
+
+## What's new in 2.1.8
+
+- Allow more time for NVIDIA's driver catalogue to respond before reporting a
+  timeout for an individual GPU.
+
+## What's new in 2.1.7
+
+- Search a broader slice of NVIDIA's catalogue and offer the newest confirmed
+  single driver package that supports every detected GPU, including a clearly
+  labeled downgrade when the shared version is older than an installed one.
+
+## What's new in 2.1.6
+
+- Cache NVIDIA display-driver packages independently; importing or downloading
+  a driver no longer creates a saved profile.
+- Retain all compatible INF variants from each package. Select a cached driver
+  and GPUs explicitly when creating a profile.
+- Show which selected GPUs an INF does not support before saving a profile.
+
+## What's new in 2.1.5
+
+- Install a downloaded update from its cached, extracted display-driver INF
+  after compatibility checks and a separate confirmation. The NVIDIA setup EXE
+  is not launched by this action.
+- Fix the cache-only message so it names the cached-package switch action.
+
+## What's new in 2.1.4
+
+- Pass Windows' desktop/notebook classification into NVIDIA's catalogue
+  matching so exact-name variants can be filtered for the installed system.
+
+## What's new in 2.1.3
+
+- Use Windows' desktop/notebook classification to select the corresponding
+  NVIDIA catalogue branch when NVIDIA lists the same exact GPU name in both.
+- Keep ambiguous OEM or unlabelled catalogue variants unresolved rather than
+  guessing a driver package.
+
+## What's new in 2.1.2
+
+- Fix NVIDIA update checks when its catalogue provides an HTTP link on an
+  official NVIDIA hostname; the app upgrades that link to HTTPS.
+- Choose to cache a selected compatible update or cache it and install it.
+
+## What's new in 2.1.1
+
+- Check GitHub for stable app updates at startup. Approve an update in the app
+  to download the release installer, verify its SHA-256 digest, and install it.
+- The installer can reopen the app after a background update completes.
+
+## What's new in 2.1
+
+- Program Files installation with administrator approval at startup and
+  migration from the older per-user install.
+- NVIDIA update download, cache, and install flow from the catalogue results.
+- Cache deletion after warnings for referenced profiles and recovery history.
+- Uninstall cleanup of the app and its generated data.
+
 ## What's new in 2.0
 
 See the [full changelog](CHANGELOG.md) for release history.
@@ -81,9 +153,9 @@ and choose one package:
 
 | Package | Download | Python needed? |
 | --- | --- | --- |
-| **Windows installer** | [v2.0 Setup · Windows x64](https://github.com/snuffy420/NvidiaGPUProfileSwitcher/releases/latest/download/NVIDIA-GPU-Driver-Profile-Switcher-v2.0-Setup-Windows-x64.exe) | No |
-| **Portable** | [v2.0 Portable · Windows x64 · .7z](https://github.com/snuffy420/NvidiaGPUProfileSwitcher/releases/latest/download/NVIDIA-GPU-Driver-Profile-Switcher-v2.0-Portable-Windows-x64.7z) | No |
-| **Python source** | [v2.0 Source · .7z](https://github.com/snuffy420/NvidiaGPUProfileSwitcher/releases/latest/download/NVIDIA-GPU-Driver-Profile-Switcher-v2.0-Source.7z) | 64-bit Python 3.10+ and PyQt6 |
+| **Windows installer** | [v2.1.2 Setup · Windows x64](https://github.com/snuffy420/NvidiaGPUProfileSwitcher/releases/latest/download/NVIDIA-GPU-Driver-Profile-Switcher-v2.1.2-Setup-Windows-x64.exe) | No |
+| **Portable** | [v2.1.2 Portable · Windows x64 · .7z](https://github.com/snuffy420/NvidiaGPUProfileSwitcher/releases/latest/download/NVIDIA-GPU-Driver-Profile-Switcher-v2.1.2-Portable-Windows-x64.7z) | No |
+| **Python source** | [v2.1.2 Source · .7z](https://github.com/snuffy420/NvidiaGPUProfileSwitcher/releases/latest/download/NVIDIA-GPU-Driver-Profile-Switcher-v2.1.2-Source.7z) | 64-bit Python 3.10+ and PyQt6 |
 
 Matching **`.sha256` files** are supplied for the three packages. To check a
 download in PowerShell, run `Get-FileHash .\your-downloaded-file -Algorithm SHA256`
@@ -96,25 +168,26 @@ choose to download them.
 
 ## Installation
 
-Requires **Windows 10 version 2004 or later, or Windows 11, x64**. Administrator
-rights are required for GPU/driver changes, not for opening the app or preparing
-profiles. Allow enough free disk space for complete extracted driver packages.
+Requires **Windows 10 version 2004 or later, or Windows 11, x64**. The app
+requests administrator approval every time it starts because profiles, caches,
+driver backups, and device controls are stored alongside the app. Allow enough
+free disk space for complete extracted driver packages.
 
 ### Windows installer
 
-1. Download and run **NVIDIA-GPU-Driver-Profile-Switcher-v2.0-Setup-Windows-x64.exe**.
-2. Choose the installation folder and whether to create a desktop shortcut.
+1. Download and run **NVIDIA-GPU-Driver-Profile-Switcher-v2.1.2-Setup-Windows-x64.exe**.
+2. Choose the installation folder under Program Files and whether to create a desktop shortcut.
 3. Open the application from the Start menu or shortcut.
 
-Setup installs for the current Windows account, normally under
-`%LOCALAPPDATA%\Programs\NVIDIA GPU Driver Profile Switcher`. This is a writable
-location for profiles and settings. Installing the app does not install a GPU
+Setup installs for all users, normally under
+`%ProgramFiles%\NVIDIA GPU Driver Profile Switcher`. Installing the app does not install a GPU
 driver or change a device's state. Uninstall removes the program's installed
-files; user-created profiles, caches, downloads, and recovery files are retained.
+files. Uninstall removes the application's profiles, caches, downloads, settings,
+history, and recovery data from its install folder and the previous per-user folder.
 
 ### Portable
 
-1. Extract **NVIDIA-GPU-Driver-Profile-Switcher-v2.0-Portable-Windows-x64.7z**
+1. Extract **NVIDIA-GPU-Driver-Profile-Switcher-v2.1.2-Portable-Windows-x64.7z**
    using 7-Zip or another compatible extractor.
 2. Keep the extracted containing folder intact and put it in a writable location.
 3. Double-click the EXE inside it. Do not run the EXE from the archive viewer.
@@ -138,7 +211,7 @@ relocate it. The `assets` folder also carries the application icon.
 3. Double-click **NVIDIA GPU Driver Profile Switcher.vbs** for a console-free
    launch, or use the CMD launcher to see startup diagnostics.
 
-Version 2.0 uses **PyQt6**, not Tkinter. Keep the Python modules, `requirements.txt`,
+The app uses **PyQt6**, not Tkinter. Keep the Python modules, `requirements.txt`,
 `assets`, and `tools` together. Use the same Python installation for pip and the
 application; `py -3 gpu_manager.py` also starts it directly.
 
@@ -174,8 +247,7 @@ adapters. If healthy GPUs have different versions, choose a version explicitly.
 ### 3. Select, switch, and verify
 
 Click a profile card; the selected card is highlighted green. Selecting it only
-changes the selection. Use **Restart as administrator** when ready to make a
-device or driver change, then **Switch using cached package…** and review the
+changes the selection. Then use **Switch using cached package…** and review the
 confirmation. **Verify loaded profile** checks the loaded versions and saved
 device states afterward. **Use full installer…** remains available when an
 official installer has been attached to the profile.
@@ -207,7 +279,9 @@ moving a package, reimport or recache it and update the affected profile.
 
 **Check NVIDIA updates…** uses NVIDIA's public product catalogue and detected
 GPU names, including disabled cards. Choose a single-GPU update or an offered
-common package supported by all selected targets. An ambiguous lookup or failed
+common package supported by all selected targets. The selected update is
+downloaded and cached, then the signed NVIDIA installer can be launched from
+the same flow after you confirm installation. An ambiguous lookup or failed
 request is not treated as “up to date”; manual EXE import remains available.
 
 Downloaded installers are checked for NVIDIA Authenticode signatures and
@@ -236,7 +310,7 @@ settings automatically.
 
 Back up your application folder, `driver_profiles.json`, `ui_settings.json`, and
 cache locations before replacing the app. Keep those data files and your cached
-packages; the downloads contain no preconfigured profiles. If you put v2.0 in a
+packages; the downloads contain no preconfigured profiles. If you put v2.1.2 in a
 different folder, copy your profile/settings files deliberately and select the
 existing cache location. Profile GPU IDs are specific to the machine on which
 they were captured. Verify loaded profiles after upgrading.
@@ -252,7 +326,7 @@ py -3 tools/build_installer.py --compiler "C:\Program Files (x86)\Inno Setup 6\I
 py -3 tools/build_release.py
 ```
 
-Release assets and SHA-256 files are written to `dist/v2.0-github`. The source
+Release assets and SHA-256 files are written to `dist/v2.1.2-github`. The source
 builder also produces a repository ZIP containing the README and screenshots.
 The build packages use explicit file lists and exclude local configurations,
 driver packages, history, recovery data, and internal tests.

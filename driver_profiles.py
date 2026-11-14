@@ -3,6 +3,7 @@ from dataclasses import asdict, dataclass, field
 import hashlib
 import json
 from pathlib import Path
+from pathlib import PurePosixPath
 import re
 
 
@@ -43,6 +44,7 @@ class DriverProfile:
     sha256: str = ""
     cache_manifest: str = ""
     disabled_gpu_ids: list[str] = field(default_factory=list)
+    cache_inf: str = ""
 
     def validate(self, require_installer=False):
         if not isinstance(self.name, str) or not self.name.strip():
@@ -69,6 +71,12 @@ class DriverProfile:
             raise ValueError("Invalid installer information.")
         if not isinstance(self.cache_manifest, str) or (self.cache_manifest and not Path(self.cache_manifest).is_absolute()):
             raise ValueError("A cached-package manifest needs an absolute path.")
+        if not isinstance(self.cache_inf, str):
+            raise ValueError("Invalid cached INF selection.")
+        if self.cache_inf:
+            relative_inf = PurePosixPath(self.cache_inf)
+            if relative_inf.is_absolute() or ".." in relative_inf.parts or relative_inf.as_posix() != self.cache_inf:
+                raise ValueError("The cached INF selection must be a relative path inside its package.")
         if self.sha256 and not re.fullmatch(r"[0-9a-f]{64}", self.sha256):
             raise ValueError("Invalid installer fingerprint.")
         if require_installer:
