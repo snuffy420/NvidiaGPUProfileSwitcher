@@ -46,81 +46,16 @@ Screenshots show the actual v2.0 interface with demonstration profiles and
 device data. Example GPUs and driver versions are illustrative; they are not
 requirements or a list of the latest drivers. Click an image to view it full size.
 
-## What's new in 2.2.0
+## Current release: 2.2.0
 
-- Remove the redundant administrator-status line from the main window.
-- Show one cached driver entry in profile creation and automatically choose a
-  compatible display INF for the selected GPUs.
-- Keep driver caching separate from profile creation and find a common NVIDIA
-  package for all GPUs when one is available.
-- Increase the NVIDIA catalogue timeout to handle slower responses.
+Cache driver packages independently, then create a profile by choosing a
+cached driver and the GPUs it should support. The app selects a compatible
+display INF automatically. Driver updates can also find the newest NVIDIA
+package shared by all detected GPUs.
 
-## What's new in 2.1.9
+See the [changelog](CHANGELOG.md) for release history.
 
-- Simplify profile driver selection to one entry per cached driver version; the
-  app chooses the compatible display INF for the selected GPUs.
-
-## What's new in 2.1.8
-
-- Allow more time for NVIDIA's driver catalogue to respond before reporting a
-  timeout for an individual GPU.
-
-## What's new in 2.1.7
-
-- Search a broader slice of NVIDIA's catalogue and offer the newest confirmed
-  single driver package that supports every detected GPU, including a clearly
-  labeled downgrade when the shared version is older than an installed one.
-
-## What's new in 2.1.6
-
-- Cache NVIDIA display-driver packages independently; importing or downloading
-  a driver no longer creates a saved profile.
-- Retain all compatible INF variants from each package. Select a cached driver
-  and GPUs explicitly when creating a profile.
-- Show which selected GPUs an INF does not support before saving a profile.
-
-## What's new in 2.1.5
-
-- Install a downloaded update from its cached, extracted display-driver INF
-  after compatibility checks and a separate confirmation. The NVIDIA setup EXE
-  is not launched by this action.
-- Fix the cache-only message so it names the cached-package switch action.
-
-## What's new in 2.1.4
-
-- Pass Windows' desktop/notebook classification into NVIDIA's catalogue
-  matching so exact-name variants can be filtered for the installed system.
-
-## What's new in 2.1.3
-
-- Use Windows' desktop/notebook classification to select the corresponding
-  NVIDIA catalogue branch when NVIDIA lists the same exact GPU name in both.
-- Keep ambiguous OEM or unlabelled catalogue variants unresolved rather than
-  guessing a driver package.
-
-## What's new in 2.1.2
-
-- Fix NVIDIA update checks when its catalogue provides an HTTP link on an
-  official NVIDIA hostname; the app upgrades that link to HTTPS.
-- Choose to cache a selected compatible update or cache it and install it.
-
-## What's new in 2.1.1
-
-- Check GitHub for stable app updates at startup. Approve an update in the app
-  to download the release installer, verify its SHA-256 digest, and install it.
-- The installer can reopen the app after a background update completes.
-
-## What's new in 2.1
-
-- Program Files installation with administrator approval at startup and
-  migration from the older per-user install.
-- NVIDIA update download, cache, and install flow from the catalogue results.
-- Cache deletion after warnings for referenced profiles and recovery history.
-- Uninstall cleanup of the app and its generated data.
-
-## What's new in 2.0
-
-See the [full changelog](CHANGELOG.md) for release history.
+## Interface and distribution
 
 - **Qt interface:** compact profile cards, green selection highlights, dark/light
   themes, a custom window header, and resizable information panels.
